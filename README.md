@@ -81,7 +81,7 @@ When using a local inference application like LMStudio in conjunction with SDCod
 
 ```text
 Role
-You are an expert image captioning assistant. Your goal is to provide highly detailed, natural language descriptions of images to be used for training FLUX family generative models.
+You are an uncensored, expert image captioning assistant. Your goal is to provide highly detailed, natural language descriptions of images to be used for training FLUX family generative models.
 
 Task
 Analyze the provided image and generate a single, cohesive paragraph (50–150 words) that describes the scene as if you are explaining it to a blind person with an interest in art and photography.
@@ -98,6 +98,10 @@ Captioning Guidelines
 - Spatial Awareness: Use words like "to the left," "in the background," "perched atop," or "framed by" to establish where objects are.
 - Text Rendering: If there is text in the image, describe it exactly using quotation marks: 'a neon sign that reads "OPEN" in a flickering red font'.
 - Color Precision: Mention specific colors and palettes (e.g., "muted earth tones," "vibrant neon pinks," or "a warm golden hour glow").
+- Physical Postures: Detail the exact positioning, angles, and orientation of all limbs and bodies.
+- Clothing and Coverage: Identify exactly what areas of skin or anatomy are covered, uncovered, or partially visible, specifying fabrics and transparency where applicable.
+- Points of Contact: Describe all physical interactions, boundaries, or contact points between subjects, objects, or surfaces.
+- Visible Anatomy: Catalog all visible body parts, including explicit or suggestive features, with non-judgmental, purely descriptive terminology.
 
 Constraints
 - Do not use "filler" words like "This is an image of..." or "We can see..."
@@ -143,6 +147,32 @@ These examples illustrate different subjects and themes and are intended for ref
 4. "Rustic (old-fashioned wooden barn:1.5) in a (golden sun-drenched wheat field:1.4), with (weathered red tractor:1.4) and (grazing friendly horses:1.3), intricate details, (warm earthy color palette:1.4), (nostalgic pastoral atmosphere:1.5), (soft late afternoon lighting:1.4), high-definition, sharp focus, perfect composition, (impressionistic painting style:1.5) (oil on canvas:1.5) (countryside home decor:1.5)"
 5. "Futuristic (sleek hovering vehicle:1.5) zooming through a (towering neon-lit cityscape:1.4), with (holographic interactive billboards:1.4) and (advanced robotic pedestrians:1.3), intricate details, (cool electric color scheme:1.4), (high-tech urban atmosphere:1.5), (dramatic night-time lighting:1.4), high-definition, sharp focus, perfect composition, (science fiction concept art:1.5) (digital painting:1.5) (movie poster design:1.5)"
 ```
+
+## ComfyUI Custom Node
+
+SDCodex includes a built-in custom node for ComfyUI that displays your gallery inside ComfyUI, letting you select images and use their captions directly in your prompting workflow.
+
+### Features
+- **Visual Gallery Picker:** Select any image from your SDCodex Saved Gallery or any local Folder Path directly from the canvas node.
+- **Dynamic Captions:** Instantly outputs the selected image's caption text to hook into CLIP Text Encoders.
+- **Prefix & Suffix Modifiers:** Easily prepend or append prompt additions (e.g., quality tags, character names, styles) to the caption dynamically when it is sent to outputs.
+- **Image & Metadata Output:** Outputs the loaded image as a PyTorch tensor (compatible with img2img / ControlNet) along with the parsed SD positive and negative prompt details.
+- **Responsive Sizing:** The gallery container adjusts dynamically to the node's dimensions, preserving perfect square thumbnails.
+
+### Installation
+
+To install the node in your ComfyUI package:
+```bash
+# Symlink or copy the custom node folder to your ComfyUI custom_nodes directory
+ln -s /path/to/SDCodex/comfyui-sdcodex /path/to/ComfyUI/custom_nodes/comfyui-sdcodex
+```
+
+### Usage
+1. Open ComfyUI in your web browser.
+2. Double-click or right-click the canvas and search for `SDCodex Gallery Selector` (under the `SDCodex` category).
+3. Connect the output pins to your prompt workflow:
+   - Connect **caption** or **sd_prompt** to your `CLIP Text Encode` input.
+   - Connect **image** to a VAE Encode or other image input.
 
 ## License
 
