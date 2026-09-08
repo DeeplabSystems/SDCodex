@@ -336,18 +336,19 @@ class PluginManager:
         if token and token.strip():
             return token.strip()
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env_file = os.path.join(root_dir, ".env")
-        if os.path.exists(env_file):
-            try:
-                with open(env_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
-                            if k.strip() == "GITHUB_TOKEN" and v.strip():
-                                return v.strip()
-            except Exception:
-                pass
+        for fname in [".env", "env"]:
+            env_file = os.path.join(root_dir, fname)
+            if os.path.exists(env_file) and not os.path.isdir(env_file):
+                try:
+                    with open(env_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                k, v = line.split("=", 1)
+                                if k.strip() == "GITHUB_TOKEN" and v.strip():
+                                    return v.strip()
+                except Exception:
+                    pass
         return None
 
     def get_default_manifest(self, identifier):
@@ -498,7 +499,7 @@ class PluginManager:
         return available
 
     def install_plugin(self, repo_url, volume_paths=None):
-        """Clones/copies plugin to plugins_dir, configures .env and docker-compose.yml."""
+        """Clones/copies plugin to plugins_dir, configures .env, requirements.txt, and docker-compose.yml."""
         short_name, full_url = self.normalize_github_url(repo_url)
         manifest = self.fetch_remote_manifest(repo_url)
         repo_name = short_name.split("/")[-1] if "/" in short_name else short_name
@@ -507,6 +508,9 @@ class PluginManager:
         target_dir = os.path.join(self.plugins_dir, plugin_id)
 
         # 1. Install Code
+        clone_error = ""
+        token = self._get_github_token()
+
         if manifest and manifest.get("_source_type") == "local" and os.path.exists(manifest.get("_local_path", "")):
             # Local copy / link for development
             import shutil
@@ -515,27 +519,35 @@ class PluginManager:
             shutil.copytree(manifest["_local_path"], target_dir, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         else:
             # Git clone (using auth token if available)
-            token = self._get_github_token()
             clone_url = full_url
             if token and "github.com" in full_url:
                 clone_url = f"https://x-access-token:{token}@github.com/{short_name}.git"
 
-            if os.path.exists(target_dir):
+            git_env = dict(os.environ)
+            git_env["GIT_TERMINAL_PROMPT"] = "0"
+
+            if os.path.exists(target_dir) and os.path.exists(os.path.join(target_dir, ".git")):
                 cmd = ["git", "-C", target_dir, "pull", "origin", "main"]
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                res = subprocess.run(cmd, capture_output=True, text=True, env=git_env)
+                if res.returncode != 0:
+                    clone_error = res.stderr.strip()
             else:
                 cmd = ["git", "clone", clone_url, target_dir]
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                res = subprocess.run(cmd, capture_output=True, text=True, env=git_env)
                 if res.returncode != 0:
                     # Try master branch
                     cmd = ["git", "clone", "-b", "master", clone_url, target_dir]
-                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    res = subprocess.run(cmd, capture_output=True, text=True, env=git_env)
+                    if res.returncode != 0:
+                        clone_error = res.stderr.strip()
 
             # If git clone failed, try checking local candidates fallback
-            if not os.path.exists(target_dir):
+            if not os.path.exists(target_dir) or not os.listdir(target_dir):
+                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 local_candidates = [
                     os.environ.get("LOCAL_PLUGINS_DIR"),
                     os.path.join(os.path.dirname(self.plugins_dir), "..", repo_name),
+                    os.path.join(os.path.dirname(root_dir), repo_name),
                     os.path.join("/workspace", repo_name),
                     os.path.join("/plugins_dev", repo_name),
                     os.path.join("/home/naked/workspace/deeplabs", repo_name),
@@ -544,21 +556,44 @@ class PluginManager:
                 for candidate in local_candidates:
                     if candidate and os.path.exists(candidate) and os.path.exists(os.path.join(candidate, "plugin.json")):
                         import shutil
+                        if os.path.exists(target_dir):
+                            shutil.rmtree(target_dir)
                         shutil.copytree(candidate, target_dir, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+                        logger.info(f"Copied plugin from local candidate: {candidate}")
+                        clone_error = ""
                         break
 
-        # 1b. Install plugin requirements if requirements.txt exists
+        # Verification: Ensure plugin files actually exist
+        if not os.path.exists(target_dir) or not os.listdir(target_dir):
+            error_msg = f"Failed to download plugin code for '{plugin_id}'."
+            if clone_error:
+                error_msg += f" Git output: {clone_error}."
+            if not token:
+                error_msg += " This repository may be private. Please configure your GITHUB_TOKEN in Settings -> Plugins or your .env file."
+            return False, error_msg
+
+        # 1b. Update root requirements.txt and install requirements in background
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         req_path = os.path.join(target_dir, "requirements.txt")
         if os.path.exists(req_path):
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=300
-                )
-            except Exception as pip_err:
-                logger.warning(f"Could not install requirements for {plugin_id}: {pip_err}")
+            self._update_requirements_file(root_dir, plugin_id, req_path)
+
+            # Asynchronous background pip installation to prevent blocking web request / gunicorn worker
+            def _bg_install(r_path, p_id):
+                try:
+                    logger.info(f"Starting background pip install for plugin '{p_id}'...")
+                    cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", r_path]
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                    if res.returncode == 0:
+                        logger.info(f"Background pip install completed successfully for '{p_id}'.")
+                        self.load_plugins()
+                    else:
+                        logger.warning(f"Background pip install for '{p_id}' returned non-zero: {res.stderr}")
+                except Exception as pip_err:
+                    logger.warning(f"Error during background pip install for '{p_id}': {pip_err}")
+
+            import threading
+            threading.Thread(target=_bg_install, args=(req_path, plugin_id), daemon=True).start()
 
         # 2. Re-read manifest from installed directory
         installed_manifest_path = os.path.join(target_dir, "plugin.json")
@@ -591,21 +626,23 @@ class PluginManager:
 
         # If it's a git clone, do git pull
         if os.path.exists(os.path.join(plugin_dir, ".git")):
-            res = subprocess.run(["git", "-C", plugin_dir, "pull"], capture_output=True, text=True)
+            git_env = dict(os.environ)
+            git_env["GIT_TERMINAL_PROMPT"] = "0"
+            res = subprocess.run(["git", "-C", plugin_dir, "pull"], capture_output=True, text=True, env=git_env)
             if res.returncode != 0:
                 return False, f"Git pull failed: {res.stderr}"
         else:
             # Check if there is a local sibling or re-fetch
             manifest_file = os.path.join(plugin_dir, "plugin.json")
             if os.path.exists(manifest_file):
-                with open(manifest_file, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-                repo_url = manifest.get("repository")
-                if repo_url:
-                    remote = self.fetch_remote_manifest(repo_url)
-                    if remote and remote.get("_source_type") == "local":
-                        import shutil
-                        shutil.copytree(remote["_local_path"], plugin_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+                try:
+                    with open(manifest_file, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    repo_url = manifest.get("repository")
+                    if repo_url:
+                        return self.install_plugin(repo_url)
+                except Exception:
+                    pass
 
         # Clear update cache for this plugin
         if plugin_id in self.update_cache:
@@ -615,12 +652,18 @@ class PluginManager:
         return True, f"Plugin '{plugin_id}' updated successfully!"
 
     def uninstall_plugin(self, plugin_id):
-        """Removes plugin directory and removes its volume entries from docker-compose.yml."""
+        """Removes plugin directory, volume entries, env vars, and requirements."""
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         plugin_dir = os.path.join(self.plugins_dir, plugin_id)
-        manifest = self.loaded_plugins.get(plugin_id, {})
-        
+
         # Remove volumes from docker-compose.yml
         self.remove_volume_config_from_compose(plugin_id)
+
+        # Remove requirements from root requirements.txt
+        self._remove_requirements_from_file(root_dir, plugin_id)
+
+        # Remove plugin env vars from .env (the env vars this plugin introduced)
+        self._remove_env_keys_for_plugin(plugin_id)
 
         # Remove files
         if os.path.exists(plugin_dir):
@@ -648,6 +691,111 @@ class PluginManager:
         self.load_plugins()
         return True
 
+    def _update_requirements_file(self, root_dir, plugin_id, plugin_req_path):
+        """Appends new requirements from plugin to root requirements.txt if not already present."""
+        if not os.path.exists(plugin_req_path):
+            return
+
+        req_file = os.path.join(root_dir, "requirements.txt")
+        existing_lines = []
+        if os.path.exists(req_file) and not os.path.isdir(req_file):
+            try:
+                with open(req_file, "r", encoding="utf-8") as f:
+                    existing_lines = f.readlines()
+            except Exception as e:
+                logger.error(f"Error reading root requirements.txt: {e}")
+
+        # Extract normalized existing package names
+        existing_pkgs = set()
+        for line in existing_lines:
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#"):
+                pkg_name = re.split(r"[=<>~!]", line_str)[0].strip().lower()
+                existing_pkgs.add(pkg_name)
+
+        # Read plugin requirements
+        try:
+            with open(plugin_req_path, "r", encoding="utf-8") as f:
+                plugin_lines = f.readlines()
+        except Exception as e:
+            logger.error(f"Error reading plugin requirements.txt: {e}")
+            return
+
+        new_reqs = []
+        for line in plugin_lines:
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#"):
+                pkg_name = re.split(r"[=<>~!]", line_str)[0].strip().lower()
+                if pkg_name not in existing_pkgs:
+                    new_reqs.append(line_str)
+                    existing_pkgs.add(pkg_name)
+
+        if not new_reqs:
+            return
+
+        content = "".join(existing_lines)
+        if content and not content.endswith("\n"):
+            content += "\n"
+
+        plugin_block = f"\n# [{plugin_id}]\n" + "\n".join(new_reqs) + "\n"
+        content += plugin_block
+
+        try:
+            with open(req_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info(f"Updated requirements.txt with {len(new_reqs)} new package(s) for '{plugin_id}'.")
+        except Exception as e:
+            logger.error(f"Error writing requirements.txt: {e}")
+
+    def _remove_requirements_from_file(self, root_dir, plugin_id):
+        """Removes the plugin's requirement section from root requirements.txt."""
+        req_file = os.path.join(root_dir, "requirements.txt")
+        if not os.path.exists(req_file) or os.path.isdir(req_file):
+            return
+
+        try:
+            with open(req_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            pattern = re.compile(
+                rf"\n?#\s*\[{re.escape(plugin_id)}\].*?(?=(\n#\s*\[|\Z))",
+                re.DOTALL
+            )
+            new_content = pattern.sub("", content)
+
+            with open(req_file, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        except Exception as e:
+            logger.error(f"Error removing requirements for '{plugin_id}': {e}")
+
+    def _remove_env_keys_for_plugin(self, plugin_id):
+        """Removes the .env keys that this plugin introduced (from its manifest volumes)."""
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        manifest = self.loaded_plugins.get(plugin_id, {})
+        volume_env_vars = {v.get("env_var") for v in manifest.get("volumes", []) if v.get("env_var")}
+        if not volume_env_vars:
+            # Fall back to the default manifest so uninstall works even at runtime before load
+            default = self.get_default_manifest(plugin_id)
+            if default:
+                volume_env_vars = {v.get("env_var") for v in default.get("volumes", []) if v.get("env_var")}
+        if not volume_env_vars:
+            return
+
+        env_file = os.path.join(root_dir, ".env")
+        if not os.path.exists(env_file) or os.path.isdir(env_file):
+            return
+
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            kept = [ln for ln in lines if not (ln.strip() and not ln.startswith("#") and "=" in ln and ln.split("=", 1)[0].strip() in volume_env_vars)]
+            if len(kept) != len(lines):
+                with open(env_file, "w", encoding="utf-8") as f:
+                    f.writelines(kept)
+                logger.info(f"Removed env vars {sorted(volume_env_vars)} from .env for '{plugin_id}'")
+        except Exception as e:
+            logger.error(f"Error removing env vars for '{plugin_id}': {e}")
+
     def apply_volume_config(self, manifest, volume_values):
         """Updates .env and docker-compose.yml with volume paths for this plugin."""
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -669,10 +817,47 @@ class PluginManager:
         self._update_compose_volumes(compose_file, manifest.get("id"), volumes)
 
     def _update_env_file(self, env_path, updates):
+        """Safely updates .env preserving existing keys, comments, and structure."""
+        if not updates:
+            return
+
+        # Guard against directory mount
+        if os.path.isdir(env_path):
+            logger.error(f"Cannot update {env_path}: path is a directory (Docker empty-dir mount).")
+            # Try alternate file 'env' if present
+            alt = os.path.join(os.path.dirname(env_path), "env")
+            if os.path.exists(alt) and not os.path.isdir(alt):
+                env_path = alt
+            else:
+                return
+
+        root_dir = os.path.dirname(os.path.abspath(env_path))
         lines = []
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+
+        if os.path.exists(env_path) and not os.path.isdir(env_path) and os.path.getsize(env_path) > 0:
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+            except Exception as e:
+                logger.error(f"Could not read {env_path}: {e}")
+
+        # If .env was missing or empty, seed from 'env' or 'env.example'
+        if not lines:
+            alt_env = os.path.join(root_dir, "env")
+            example_env = os.path.join(root_dir, "env.example")
+            seed_path = None
+            if os.path.exists(alt_env) and not os.path.isdir(alt_env) and os.path.getsize(alt_env) > 0:
+                seed_path = alt_env
+            elif os.path.exists(example_env) and not os.path.isdir(example_env):
+                seed_path = example_env
+
+            if seed_path:
+                try:
+                    with open(seed_path, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    logger.info(f"Seeded .env structure from {os.path.basename(seed_path)}")
+                except Exception as e:
+                    logger.warning(f"Could not seed .env from {seed_path}: {e}")
 
         existing_keys = set()
         new_lines = []
@@ -685,33 +870,59 @@ class PluginManager:
                     new_lines.append(f"{k}={updates[k]}\n")
                     existing_keys.add(k)
                     continue
+                else:
+                    existing_keys.add(k)
             new_lines.append(line)
 
-        for k, v in updates.items():
-            if k not in existing_keys:
-                new_lines.append(f"{k}={v}\n")
+        # Append remaining new keys
+        remaining_keys = [k for k in updates if k not in existing_keys]
+        if remaining_keys:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines[-1] += "\n"
+            for k in remaining_keys:
+                new_lines.append(f"{k}={updates[k]}\n")
 
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
+        # Safety check: Never write an empty file
+        if not new_lines:
+            return
+
+        try:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            logger.info(f"Successfully updated {env_path} with keys: {list(updates.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to write updates to {env_path}: {e}")
 
     def _update_compose_volumes(self, compose_path, plugin_id, volumes):
         if not os.path.exists(compose_path) or not volumes:
             return
 
-        with open(compose_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        try:
+            with open(compose_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            logger.error(f"Could not read compose file {compose_path}: {e}")
+            return
 
         start_marker = "# --- PLUGIN VOLUMES START ---"
         end_marker = "# --- PLUGIN VOLUMES END ---"
 
         if start_marker not in content or end_marker not in content:
-            # If markers are missing, find volumes: block and insert markers
+            # If markers are missing, find where volumes block is
             match = re.search(r"(\s+volumes:\s*\n)", content)
             if match:
                 indent = "      "
-                insertion = f"\n{indent}{start_marker}\n{indent}{end_marker}\n"
-                idx = match.end()
-                content = content[:idx] + insertion + content[idx:]
+                # Check if there are already volume entries under volumes:
+                # Find end of volumes list or insert after volumes:
+                cfg_match = re.search(r"(\s+#\s*---\s*PLUGIN CONFIG MOUNTS.*?\n(?:\s+-\s+.*?\n)+)", content)
+                if cfg_match:
+                    idx = cfg_match.end()
+                    insertion = f"{indent}{start_marker}\n{indent}{end_marker}\n"
+                    content = content[:idx] + insertion + content[idx:]
+                else:
+                    idx = match.end()
+                    insertion = f"{indent}{start_marker}\n{indent}{end_marker}\n"
+                    content = content[:idx] + insertion + content[idx:]
             else:
                 return
 
@@ -747,8 +958,12 @@ class PluginManager:
 
         new_content = pattern.sub(f"{start_marker}{new_block_body}{end_marker}", content)
 
-        with open(compose_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        try:
+            with open(compose_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            logger.info(f"Successfully updated {compose_path} with volumes for '{plugin_id}'.")
+        except Exception as e:
+            logger.error(f"Failed to write compose updates to {compose_path}: {e}")
 
     def remove_volume_config_from_compose(self, plugin_id):
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

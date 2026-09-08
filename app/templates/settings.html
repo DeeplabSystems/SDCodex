@@ -300,6 +300,29 @@
 
             <hr class="my-5">
 
+            <!-- GitHub Personal Access Token Configuration -->
+            <div class="card mb-4 shadow-sm border-secondary-subtle">
+                <div class="card-header bg-body-tertiary">
+                    <h5 class="mb-0"><i class="fas fa-key text-warning me-2"></i>GitHub Personal Access Token</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary small mb-3">Provide a GitHub Personal Access Token (classic or fine-grained with <code>Contents: Read</code> permission) to install and update private plugin repositories such as <code>SDCodex-GalleryDL</code> and <code>SDCodex-ComfyCaption</code>. Saved directly to your <code>.env</code> file.</p>
+                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end">
+                        <input type="hidden" name="action" value="save_github_token">
+                        <div class="col-md-9">
+                            <label for="github_token" class="form-label small fw-semibold">Personal Access Token (PAT)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text"><i class="fab fa-github"></i></span>
+                                <input type="password" class="form-control font-monospace" id="github_token" name="github_token" value="{{ github_token }}" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-save me-1"></i>Save Token</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
             <!-- Registered Plugin Repositories Management -->
             <div class="card mb-4 shadow-sm">
                 <div class="card-header bg-body-tertiary">

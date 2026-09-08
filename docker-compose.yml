@@ -4,13 +4,13 @@
 # Additional capabilities (Captioning/Gallery/ComfyUI, GalleryDL, RemBG)
 # are installed as plugins via Settings -> Plugins.
 #
-# Installing a plugin updates the volume mounts below and the .env file.
+# Installing a plugin updates the volume mounts below, requirements.txt, and .env.
 # After installing or reconfiguring a plugin, restart with:
 #   docker compose up -d
 
 services:
   sdcodex:
-#    build: .
+    build: .
     image: nakedzombie/sdcodex:latest
     container_name: sdcodex
     restart: unless-stopped
@@ -20,8 +20,9 @@ services:
       PORT: "5001"
       SECRET_KEY: "${SECRET_KEY:-}"
       DATABASE_URL: "sqlite:////data/db/sdcodex.db"
-      PUID: 1000
-      PGID: 1000
+      PUID: "${PUID:-${UID:-1000}}"
+      PGID: "${PGID:-${GID:-${GUID:-1000}}}"
+      UMASK: "${UMASK:-002}"
       PLUGINS_DIR: /app/plugins
       # Environment variables for plugins (if installed)
       TASKS_DIR: /data/tasks
@@ -31,16 +32,22 @@ services:
       REMBG_OUTPUT: /data/rembg_output
       COMFYUI_CUSTOM_NODES: /data/custom_nodes
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+    entrypoint: ["/entrypoint.sh"]
     volumes:
       # Core volume mounts
       - ${DB:-./db}:/data/db
+      - ./app:/app/app
+      - ./run.py:/app/run.py
       - ${MODELS:-./app/static/downloads}:/app/app/static/downloads
       - ./plugins:/app/plugins
+      - ./entrypoint.sh:/entrypoint.sh:ro
 
       # --- PLUGIN CONFIG MOUNTS
       - ./docker-compose.yml:/app/docker-compose.yml
       - ./.env:/app/.env
+      - ./requirements.txt:/app/requirements.txt
       # --- PLUGIN VOLUMES START ---
+      # (Installed plugin volume mounts are appended here by Settings -> Plugins)
       # --- PLUGIN VOLUMES END ---
 
     healthcheck:

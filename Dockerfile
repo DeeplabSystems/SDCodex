@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ffmpeg \
         ca-certificates \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps first (layer cache: only reinstall when requirements change).
@@ -41,14 +42,15 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 # Application code
 COPY . .
+RUN chmod +x /app/entrypoint.sh && cp /app/entrypoint.sh /entrypoint.sh
 
 EXPOSE 5001
 
-# Ensure volume mount points exist (SQLite needs the /data/db directory), then
-# serve on 0.0.0.0:$PORT. --timeout 0 keeps long-lived streaming endpoints
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Serve on 0.0.0.0:$PORT. --timeout 0 keeps long-lived streaming endpoints
 # (task log streams) from being cut off.
-CMD mkdir -p "$TASKS_DIR" "$CONFIG_DIR" "$DOWNLOADS_DIR" /data/db "$HF_HOME" "$REMBG_OUTPUT" /app/plugins \
-    && exec gunicorn \
+CMD exec gunicorn \
         --bind 0.0.0.0:"$PORT" \
         --workers 1 \
         --threads 8 \

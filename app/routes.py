@@ -484,6 +484,15 @@ def settings():
             active_tab = "download-dirs"
 
         # 3. Plugin Management Actions
+        elif action == "save_github_token":
+            token = request.form.get("github_token", "").strip()
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            env_file = os.path.join(root_dir, ".env")
+            plugin_manager._update_env_file(env_file, {"GITHUB_TOKEN": token})
+            os.environ["GITHUB_TOKEN"] = token
+            flash("GitHub Personal Access Token saved successfully to .env!", "success")
+            active_tab = "plugins"
+
         elif action == "add_plugin_repo":
             repo_url = request.form.get("repo_url", "").strip()
             if repo_url:
@@ -600,17 +609,21 @@ def settings():
 
     env_values = {}
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env_file = os.path.join(root_dir, ".env")
-    if os.path.exists(env_file):
-        try:
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        env_values[k.strip()] = v.strip()
-        except Exception:
-            pass
+    for fname in [".env", "env"]:
+        env_file = os.path.join(root_dir, fname)
+        if os.path.exists(env_file) and not os.path.isdir(env_file):
+            try:
+                with open(env_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            env_values[k.strip()] = v.strip()
+                break
+            except Exception:
+                pass
+
+    github_token = plugin_manager._get_github_token() or env_values.get("GITHUB_TOKEN", "")
 
     return render_template(
         "settings.html",
@@ -623,6 +636,7 @@ def settings():
         installed_plugins=installed_plugins,
         available_plugins=available_plugins,
         env_values=env_values,
+        github_token=github_token,
         active_tab=active_tab,
     )
 
