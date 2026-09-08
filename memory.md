@@ -103,12 +103,27 @@ messages and doc alerts accordingly.
 
 ## Operational notes
 
-- `.env` is gitignored (runtime state). `docker-compose.yml` is committed but
-  with plugin blocks driven by install (core baseline stays plugin-free).
-- Config files (`.env`, `docker-compose.yml`, `requirements.txt`, `plugins/`)
-  are bind-mounted; replacing them while the container runs can diverge the
-  container's inode references. Recreate via `update.sh` (`docker compose down
-  && up -d --build`) after config changes.
+- `.env` is gitignored (runtime state).
+- **Plugin mounts live in `docker-compose.override.yml`**, never in
+  `docker-compose.yml`. The core `docker-compose.yml` stays core-only and is not
+  modified at install/uninstall. Docker Compose auto-merges the override file on
+  `up`. `apply_volume_config` / `uninstall_plugin` /
+  `remove_volume_config_from_compose` target the override via
+  `get_plugin_compose_file()`. `_update_compose_environment` creates an
+  `environment:` block in the override if a clone only has `volumes:`.
+- `update.sh` marks `docker-compose.override.yml` and `requirements.txt` as
+  `git update-index --skip-worktree` so runtime plugin writes to them never show
+  as git changes (this resolved the git-conflict issue). Their committed baseline
+  stays core-only (empty markers / core packages); the working files carry the
+  runtime plugin entries.
+- `docker-compose.yml` bind-mounts the correctly-spelled
+  `./docker-compose.override.yml:/app/docker-compose.override.yml` so the manager
+  (running in the container at `/app`) writes the same file Compose reads on the
+  host.
+- Config files (`.env`, `docker-compose.override.yml`, `requirements.txt`,
+  `plugins/`) are bind-mounted; replacing them while the container runs can
+  diverge the container's inode references. Recreate via `update.sh`
+  (`docker compose down && up -d --build`) after config changes.
 - No password-based `sudo`; use privileged helper containers for root-owned
   file cleanup under `plugins/`.
 
