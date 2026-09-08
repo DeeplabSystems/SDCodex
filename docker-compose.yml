@@ -17,7 +17,6 @@ services:
     ports:
       - "${SDCODEX_PORT:-5001}:5001"
     environment:
-      # --- PLUGIN ENV END ---
       PORT: "5001"
       SECRET_KEY: "${SECRET_KEY:-}"
       DATABASE_URL: "sqlite:////data/db/sdcodex.db"
@@ -36,7 +35,7 @@ services:
       - ./plugins:/app/plugins
       - ./entrypoint.sh:/entrypoint.sh:ro
       # --- PLUGIN CONFIG MOUNTS
-      - ./docker-compose.overide.yml:/app/docker-compose.overide.yml
+      - ./docker-compose.override.yml:/app/docker-compose.override.yml
       - ./.env:/app/.env
       - ./requirements.txt:/app/requirements.txt
     healthcheck:

@@ -716,7 +716,7 @@ class PluginManager:
         return available
 
     def install_plugin(self, repo_url, volume_paths=None):
-        """Clones/copies plugin to plugins_dir, configures .env, requirements.txt, and docker-compose.yml."""
+        """Clones/copies plugin to plugins_dir, configures .env, requirements.txt, and docker-compose.override.yml."""
         short_name, full_url = self.normalize_github_url(repo_url)
         manifest = self.fetch_remote_manifest(repo_url)
         repo_name = short_name.split("/")[-1] if "/" in short_name else short_name
@@ -820,7 +820,7 @@ class PluginManager:
         else:
             installed_manifest = manifest or self.get_default_manifest(plugin_id) or {"id": plugin_id, "name": plugin_id, "volumes": []}
 
-        # 3. Configure Volumes in .env and docker-compose.yml
+        # 3. Configure Volumes in .env and docker-compose.override.yml
         if volume_paths is None:
             volume_paths = {}
         for v in installed_manifest.get("volumes", []):
@@ -873,12 +873,8 @@ class PluginManager:
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         plugin_dir = os.path.join(self.plugins_dir, plugin_id)
 
-        # Remove volumes from docker-compose.yml
+        # Remove volumes + env from docker-compose.override.yml
         self.remove_volume_config_from_compose(plugin_id)
-
-        # Remove the plugin's env-block from the compose `environment:` list
-        compose_file = os.path.join(root_dir, "docker-compose.yml")
-        self._remove_compose_environment(compose_file, plugin_id)
 
         # Remove requirements from root requirements.txt
         self._remove_requirements_from_file(root_dir, plugin_id)
@@ -1017,11 +1013,21 @@ class PluginManager:
         except Exception as e:
             logger.error(f"Error removing env vars for '{plugin_id}': {e}")
 
+    def get_plugin_compose_file(self):
+        """Path of the compose file that holds per-plugin mounts.
+
+        Plugin volume/environment entries live in docker-compose.override.yml so
+        the core docker-compose.yml is never modified at runtime. Docker Compose
+        auto-merges the override file with docker-compose.yml on `up`.
+        """
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(root_dir, "docker-compose.override.yml")
+
     def apply_volume_config(self, manifest, volume_values):
-        """Updates .env and docker-compose.yml with volume paths for this plugin."""
+        """Updates .env and docker-compose.override.yml with volume paths for this plugin."""
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env_file = os.path.join(root_dir, ".env")
-        compose_file = os.path.join(root_dir, "docker-compose.yml")
+        compose_file = self.get_plugin_compose_file()
 
         # 1. Update .env file
         env_updates = {}
@@ -1034,7 +1040,7 @@ class PluginManager:
 
         self._update_env_file(env_file, env_updates)
 
-        # 2. Update docker-compose.yml (volume mounts and environment block)
+        # 2. Update docker-compose.override.yml (volume mounts and environment block)
         plugin_id = manifest.get("id")
         self._update_compose_volumes(compose_file, plugin_id, volumes)
         self._update_compose_environment(compose_file, plugin_id, volumes)
@@ -1214,8 +1220,22 @@ class PluginManager:
 
         environment_match = re.search(r"(\n\s+environment:\s*\n)", content)
         if not environment_match:
-            logger.error(f"No `environment:` block found in {compose_path}")
-            return
+            # The override file may only have volumes:. Create an environment
+            # section after the PLUGIN VOLUMES markers so env vars have a home.
+            env_start_tmp = "# --- PLUGIN ENV START ---"
+            env_end_tmp = "# --- PLUGIN ENV END ---"
+            vol_end_marker = "# --- PLUGIN VOLUMES END ---"
+            if vol_end_marker in content:
+                idx = content.index(vol_end_marker) + len(vol_end_marker)
+                insertion = (
+                    f"\n    environment:\n"
+                    f"      {env_start_tmp}\n"
+                    f"      {env_end_tmp}\n"
+                )
+                content = content[:idx] + insertion + content[idx:]
+            else:
+                logger.error(f"No `environment:` block found in {compose_path}")
+                return
 
         # Ensure markers exist inside the environment block
         if env_start not in content or env_end not in content:
@@ -1293,8 +1313,7 @@ class PluginManager:
             logger.error(f"Failed to update compose environment for '{plugin_id}': {e}")
 
     def remove_volume_config_from_compose(self, plugin_id):
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        compose_file = os.path.join(root_dir, "docker-compose.yml")
+        compose_file = self.get_plugin_compose_file()
         if not os.path.exists(compose_file):
             return
 
@@ -1309,6 +1328,7 @@ class PluginManager:
 
         with open(compose_file, "w", encoding="utf-8") as f:
             f.write(new_content)
+        logger.info(f"Removed plugin '{plugin_id}' volume/env entries from {compose_file}.")
 
 
 plugin_manager = PluginManager()

@@ -1,8 +1,14 @@
 
+# Plugin mounts (volumes + environment) are written here by SDCodex Settings ->
+# Plugins. Docker Compose auto-merges this file with docker-compose.yml, so the
+# core docker-compose.yml stays core-only and never modified at runtime.
 services:
   sdcodex:
     volumes:
       # --- PLUGIN VOLUMES START ---
       # (Installed plugin volume mounts are appended here by Settings -> Plugins)
       # --- PLUGIN VOLUMES END ---
-
+    environment:
+      # --- PLUGIN ENV START ---
+      # (Installed plugin env vars are appended here by Settings -> Plugins)
+      # --- PLUGIN ENV END ---
