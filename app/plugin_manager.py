@@ -56,7 +56,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
         "volumes": [
             {
                 "env_var": "GALLERY",
-                "host_path": "./app/static/saved_gallery",
+                "host_path": ".gallery",
                 "container_path": "/app/app/static/saved_gallery",
                 "description": "Directory for saved gallery images and thumbnails"
             },
@@ -659,6 +659,10 @@ class PluginManager:
         # Remove volumes from docker-compose.yml
         self.remove_volume_config_from_compose(plugin_id)
 
+        # Remove the plugin's env-block from the compose `environment:` list
+        compose_file = os.path.join(root_dir, "docker-compose.yml")
+        self._remove_compose_environment(compose_file, plugin_id)
+
         # Remove requirements from root requirements.txt
         self._remove_requirements_from_file(root_dir, plugin_id)
 
@@ -813,8 +817,10 @@ class PluginManager:
 
         self._update_env_file(env_file, env_updates)
 
-        # 2. Update docker-compose.yml
-        self._update_compose_volumes(compose_file, manifest.get("id"), volumes)
+        # 2. Update docker-compose.yml (volume mounts and environment block)
+        plugin_id = manifest.get("id")
+        self._update_compose_volumes(compose_file, plugin_id, volumes)
+        self._update_compose_environment(compose_file, plugin_id, volumes)
 
     def _update_env_file(self, env_path, updates):
         """Safely updates .env preserving existing keys, comments, and structure."""
@@ -964,6 +970,110 @@ class PluginManager:
             logger.info(f"Successfully updated {compose_path} with volumes for '{plugin_id}'.")
         except Exception as e:
             logger.error(f"Failed to write compose updates to {compose_path}: {e}")
+
+    def _update_compose_environment(self, compose_path, plugin_id, volumes):
+        """Inserts the plugin's volume env vars into the compose `environment:` block."""
+        if not os.path.exists(compose_path) or not volumes:
+            return
+
+        env_pairs = []
+        for v in volumes:
+            env_var = v.get("env_var")
+            container_path = v.get("container_path")
+            if env_var and container_path:
+                env_pairs.append((env_var, container_path))
+        if not env_pairs:
+            return
+
+        try:
+            with open(compose_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            logger.error(f"Could not read compose file {compose_path}: {e}")
+            return
+
+        env_start = "# --- PLUGIN ENV START ---"
+        env_end = "# --- PLUGIN ENV END ---"
+
+        environment_match = re.search(r"(\n\s+environment:\s*\n)", content)
+        if not environment_match:
+            logger.error(f"No `environment:` block found in {compose_path}")
+            return
+
+        # Ensure markers exist inside the environment block
+        if env_start not in content or env_end not in content:
+            env_block_start = environment_match.end()
+            # Insert markers right after the environment: line (before following entries)
+            insertion = f"      {env_start}\n      {env_end}\n"
+            content = content[:env_block_start] + insertion + content[env_block_start:]
+            environment_match = None
+
+        env_pattern = re.compile(
+            rf"{re.escape(env_start)}(.*?){re.escape(env_end)}",
+            re.DOTALL
+        )
+        match = env_pattern.search(content)
+        if not match:
+            logger.error(f"Could not locate env markers in {compose_path}")
+            return
+
+        current_block = match.group(1)
+
+        # Remove existing block for this plugin if present
+        sub_pattern = re.compile(
+            rf"\s*#\s*\[{re.escape(plugin_id)}\].*?(?=(\s*#\s*\[|\Z))",
+            re.DOTALL
+        )
+        cleaned_block = sub_pattern.sub("", current_block).rstrip()
+
+        new_plugin_lines = [f"      # [{plugin_id}]"]
+        for env_var, container_path in env_pairs:
+            new_plugin_lines.append(f"      {env_var}: \"{container_path}\"")
+        new_block_body = cleaned_block + "\n" + "\n".join(new_plugin_lines) + "\n      "
+
+        new_content = env_pattern.sub(f"{env_start}{new_block_body}{env_end}", content)
+
+        try:
+            with open(compose_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            logger.info(f"Successfully updated {compose_path} environment with {len(env_pairs)} entries for '{plugin_id}'.")
+        except Exception as e:
+            logger.error(f"Failed to write compose environment updates to {compose_path}: {e}")
+
+    def _remove_compose_environment(self, compose_path, plugin_id):
+        """Removes the plugin's env block from the compose `environment:` block."""
+        if not os.path.exists(compose_path):
+            return
+
+        with open(compose_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        env_start = "# --- PLUGIN ENV START ---"
+        env_end = "# --- PLUGIN ENV END ---"
+        pattern = re.compile(
+            rf"{re.escape(env_start)}(.*?){re.escape(env_end)}",
+            re.DOTALL
+        )
+        match = pattern.search(content)
+        if not match:
+            return
+
+        current_block = match.group(1)
+        sub_pattern = re.compile(
+            rf"\s*#\s*\[{re.escape(plugin_id)}\].*?(?=(\s*#\s*\[|\Z))",
+            re.DOTALL
+        )
+        cleaned_block = sub_pattern.sub("", current_block).rstrip()
+        new_block_body = cleaned_block + "\n      "
+
+        new_content = pattern.sub(f"{env_start}{new_block_body}{env_end}", content)
+
+        try:
+            with open(compose_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            logger.info(f"Removed compose environment entries for '{plugin_id}'.")
+        except Exception as e:
+            logger.error(f"Failed to update compose environment for '{plugin_id}': {e}")
 
     def remove_volume_config_from_compose(self, plugin_id):
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
