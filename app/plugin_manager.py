@@ -90,8 +90,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
                     {"label": "Tasks", "url": "/tasks", "icon": "fas fa-tasks"},
                     {"label": "Quick Download", "url": "/one-time", "icon": "fas fa-download"},
                     {"label": "Kiosks", "url": "/kiosks", "icon": "fas fa-desktop"},
-                    {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"},
-                    {"label": "Config", "url": "/config", "icon": "fas fa-sliders-h"}
+                    {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"}
                 ]
             }
         ],
