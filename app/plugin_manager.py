@@ -50,7 +50,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "comfy-caption": {
         "id": "comfy-caption",
         "name": "ComfyUI Caption & Gallery",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "Integrated image gallery, auto-captioning with LLMs/JoyCaption, and ComfyUI custom workflow nodes.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
@@ -77,7 +77,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery-dl": {
         "id": "gallery-dl",
         "name": "GalleryDL & Tasks",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, and OAuth configuration.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
@@ -123,7 +123,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "rembg": {
         "id": "rembg",
         "name": "RemBG Background Tools",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "High-precision background removal, replacement, and batch processing powered by BiRefNet.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-RemBG",
