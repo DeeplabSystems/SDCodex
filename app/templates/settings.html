@@ -162,7 +162,7 @@
                 <i class="fas fa-info-circle fa-2x me-3"></i>
                 <div>
                     <h6 class="alert-heading mb-1 fw-bold">Modular Docker Stack</h6>
-                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, simply restart the stack on your host: <code class="bg-dark text-light px-2 py-1 rounded">docker compose up -d</code>.</p>
+                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, run the update script on your host: <code class="bg-dark text-light px-2 py-1 rounded">./update.sh</code></p>
                 </div>
             </div>
 
@@ -216,6 +216,12 @@
 
                             <!-- Actions Row -->
                             <div class="d-flex flex-wrap gap-2 pt-2 border-top">
+                                {% if plugin.settings %}
+                                <a href="{{ plugin.settings.url }}" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-sliders-h me-1"></i>{{ plugin.settings.label or 'Settings' }}
+                                </a>
+                                {% endif %}
+
                                 {% if plugin.has_update %}
                                 <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">
                                     <button type="submit" name="action" value="update_plugin:{{ plugin.id }}" class="btn btn-sm btn-warning">

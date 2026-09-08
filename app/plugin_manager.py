@@ -89,6 +89,11 @@ DEFAULT_PLUGIN_MANIFESTS = {
                 ]
             }
         ],
+        "settings": {
+            "label": "Config & Scheduler",
+            "url": "/config",
+            "icon": "fas fa-sliders-h"
+        },
         "volumes": [
             {
                 "env_var": "TASKS",
@@ -131,7 +136,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
         ],
         "volumes": [
             {
-                "env_var": "HF_HOME",
+                "env_var": "HFH",
                 "host_path": "./Huggingface",
                 "container_path": "/data/huggingface",
                 "description": "HuggingFace model cache directory for BiRefNet weights"
