@@ -10,15 +10,17 @@ def create_app(config_class=Config):
     
     db.init_app(app)
     
+    # Register Core Blueprint
     from app.routes import main
     app.register_blueprint(main)
-    
-    from app.api_gallery import gallery
-    app.register_blueprint(gallery)
     
     with app.app_context():
         # Import models to ensure they are registered with SQLAlchemy
         from app import models
         db.create_all()
+
+    # Initialize Plugin System
+    from app.plugin_manager import plugin_manager
+    plugin_manager.init_app(app, db)
     
     return app

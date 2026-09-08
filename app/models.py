@@ -37,15 +37,12 @@ class Download(db.Model):
     def __repr__(self):
         return f'<Download {self.name}>'
 
-class GalleryImage(db.Model):
+class PluginRepo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    file_name = db.Column(db.String(256), nullable=False)
-    image_path = db.Column(db.String(512), nullable=False)
-    caption = db.Column(db.Text)
-    sd_prompt = db.Column(db.Text)
-    sd_negative = db.Column(db.Text)
-    sd_setting = db.Column(db.Text)
+    repo_url = db.Column(db.String(256), unique=True, nullable=False)
+    name = db.Column(db.String(128))
+    description = db.Column(db.String(512))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
-        return f'<GalleryImage {self.file_name}>'
+        return f'<PluginRepo {self.repo_url}>'

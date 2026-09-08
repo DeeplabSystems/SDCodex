@@ -8,31 +8,22 @@ from flask import (
     jsonify,
     current_app,
     session,
-    send_from_directory,
     send_file,
 )
 from app import api
 from app import db
-from app.models import Setting, Download
+from app.models import Setting, Download, PluginRepo
 from app.download_manager import download_manager
+from app.plugin_manager import plugin_manager
 from flask_paginate import Pagination, get_page_parameter
 import os
-import threading
+import re
 
 main = Blueprint("main", __name__)
-
-@main.route("/captioning")
-def captioning():
-    return render_template("captioning.html")
-
-@main.route("/gallery")
-def gallery():
-    return render_template("gallery.html")
 
 @main.record
 def record(state):
     download_manager.init_app(state.app)
-
 
 @main.route("/")
 def index():
@@ -81,8 +72,6 @@ def index():
         current_nsfw=nsfw,
     )
 
-
-# Constants for filters
 MODEL_TYPES = [
     "Checkpoint",
     "Embedding",
@@ -180,13 +169,11 @@ MODEL_STATUS_OPTIONS = [
     ("Featured", "Featured"),
 ]
 
-
 @main.route("/models")
 def models():
     page = request.args.get(get_page_parameter(), type=int, default=1)
     per_page = current_app.config["MODELS_PER_PAGE"]
 
-    # Filter options
     type_filter = request.args.get("type")
     base_model_filter = request.args.get("base_model")
     sort_by = request.args.get("sort", "Newest")
@@ -194,12 +181,10 @@ def models():
     nsfw = request.args.get("nsfw", "false")
     tags = request.args.getlist("tags")
     
-    # New filters
     checkpoint_type = request.args.get("checkpoint_type")
     file_format = request.args.get("format")
     status = request.args.get("status")
 
-    # Fetch models from the API
     try:
         params = {
             "page": page,
@@ -235,20 +220,15 @@ def models():
         models = []
         total = 0
 
-    # Create a Pagination object
     pagination = Pagination(
         page=page, per_page=per_page, total=total, css_framework="bootstrap4"
     )
 
-    # Get popular tags from the API
     try:
         tags_params = {"limit": 10, "sort": "Most Models"}
         tags_response = api.get_tags(tags_params, api_key=session.get("api_key"))
-        # The tags API returns items with 'name' and 'link', but no count.
-        # We will just use the name.
         popular_tags = [tag["name"] for tag in tags_response.get("items", [])]
     except Exception as e:
-        flash(f"Error fetching tags from API: {e}", "error")
         popular_tags = []
 
     return render_template(
@@ -276,8 +256,8 @@ def models():
         },
     )
 
-
 @main.route("/models/<int:model_id>")
+@main.route("/model/<int:model_id>")
 def model_detail(model_id):
     try:
         model = api.get_model(model_id, api_key=session.get("api_key"))
@@ -291,9 +271,6 @@ def model_detail(model_id):
         preview_images.extend(version.get("images", []))
 
     tags = model.get("tags", [])
-
-    # The API does not directly provide similar or related models.
-    # We will leave these empty for now.
     similar_models = []
     related_by_type = []
     model_types = []
@@ -309,18 +286,17 @@ def model_detail(model_id):
         model_types=model_types,
     )
 
-
 @main.route("/creators")
 def creators():
     page = request.args.get(get_page_parameter(), type=int, default=1)
-    per_page = current_app.config["CREATORS_PER_PAGE"]
-
-    # Sort options
+    per_page = current_app.config.get("CREATORS_PER_PAGE", 20)
     sort_by = request.args.get("sort", "most-models")
+    query = request.args.get("query", "")
 
-    # Fetch creators from the API
     try:
         params = {"page": page, "limit": per_page, "sort": sort_by}
+        if query:
+            params["query"] = query
         response = api.get_creators(params, api_key=session.get("api_key"))
         creators = response.get("items", [])
         total = response.get("metadata", {}).get("totalItems", 0)
@@ -329,46 +305,43 @@ def creators():
         creators = []
         total = 0
 
-    # Create a Pagination object
     pagination = Pagination(
         page=page, per_page=per_page, total=total, css_framework="bootstrap4"
     )
-
-    # The API does not directly provide model types for the creator list.
-    model_types = []
 
     return render_template(
         "creators.html",
         creators=creators,
         pagination=pagination,
         current_sort=sort_by,
-        model_types=model_types,
+        model_types=[],
+        query=query,
     )
 
-
 @main.route("/creators/<int:creator_id>")
-def creator_detail(creator_id):
-    try:
-        creator = api.get_creator(creator_id, api_key=session.get("api_key"))
-    except Exception as e:
-        flash(f"Error fetching creator from API: {e}", "error")
-        return redirect(url_for("main.creators"))
+@main.route("/creator/<string:username>")
+def creator_detail(creator_id=None, username=None):
+    if creator_id is not None:
+        try:
+            creator = api.get_creator(creator_id, api_key=session.get("api_key"))
+        except Exception as e:
+            flash(f"Error fetching creator from API: {e}", "error")
+            return redirect(url_for("main.creators"))
+        uname = creator.get("username")
+    else:
+        creator = {"username": username}
+        uname = username
 
-    # Get creator's models
     try:
-        params = {"username": creator.get("username")}
+        params = {"username": uname}
         response = api.get_models(params, api_key=session.get("api_key"))
         models = response.get("items", [])
     except Exception as e:
         flash(f"Error fetching models from API: {e}", "error")
         models = []
 
-    # Calculate statistics
     model_count = len(models)
     download_count = sum(model.get("stats", {}).get("downloadCount", 0) for model in models)
-
-    # The API does not directly provide model types for the creator's model list.
-    model_types = []
 
     return render_template(
         "creator_detail.html",
@@ -376,13 +349,12 @@ def creator_detail(creator_id):
         models=models,
         model_count=model_count,
         download_count=download_count,
-        model_types=model_types,
+        model_types=[],
     )
-
 
 @main.route("/search")
 def search():
-    query = request.args.get("q", "")
+    query = request.args.get("q", "") or request.args.get("query", "")
     base_model_filter = request.args.get("base_model", "")
     nsfw = request.args.get("nsfw", "false")
     page = request.args.get(get_page_parameter(), type=int, default=1)
@@ -391,7 +363,6 @@ def search():
     if not query:
         return redirect(url_for("main.index"))
 
-    # Search models
     try:
         params = {
             "page": page,
@@ -408,21 +379,17 @@ def search():
         models = []
         total = 0
 
-    # Create a Pagination object for models
     model_pagination = Pagination(
         page=page, per_page=per_page, total=total, css_framework="bootstrap4"
     )
 
-    # Search creators
     try:
         params = {"query": query, "limit": 5}
         response = api.get_creators(params, api_key=session.get("api_key"))
         creators = response.get("items", [])
     except Exception as e:
-        flash(f"Error fetching creators from API: {e}", "error")
         creators = []
 
-    # The API does not directly provide base models and model types for the search results.
     base_models = []
     model_types = []
 
@@ -438,55 +405,226 @@ def search():
         current_nsfw=nsfw,
     )
 
-
 @main.route("/settings", methods=["GET", "POST"])
 def settings():
+    active_tab = request.args.get("tab", "download-dirs")
+
     if request.method == "POST":
-        action = request.form.get("action")
-        if action == "clear":
-            session.pop("api_key", None)
-            session.pop("user", None)
-            flash("API Key cleared.", "info")
-        else:
-            # Handle API Key
-            api_key = request.form.get("api_key")
+        action = request.form.get("action", "")
+
+        # 1. API Key Actions
+        if action == "save_api_key":
+            api_key = request.form.get("api_key", "").strip()
             if api_key:
                 user = api.get_user(api_key)
                 session["api_key"] = api_key
                 if user:
                     session["user"] = user
-                    flash(f"Logged in as {user.get('username', 'Unknown')}", "success")
+                    flash(f"Logged in as {user.get('username', 'Verified User')}", "success")
                 else:
                     session.pop("user", None)
-                    flash("API Key saved, but could not verify user details.", "warning")
-            
-            # Handle Directory Settings
+                    flash("API Key saved, but could not verify user with Civitai.", "warning")
+            else:
+                flash("API Key cannot be empty.", "warning")
+            active_tab = "download-dirs"
+
+        elif action == "clear_api_key":
+            session.pop("api_key", None)
+            session.pop("user", None)
+            flash("Civitai API Key cleared.", "info")
+            active_tab = "download-dirs"
+
+        # 2. Download Directories
+        elif action == "save_directories":
             for model_type in MODEL_TYPES:
                 dir_key = f"dir_{model_type}"
-                dir_value = request.form.get(dir_key)
-                if dir_value:
-                    setting = Setting.query.get(dir_key)
-                    if not setting:
-                        setting = Setting(key=dir_key)
-                        db.session.add(setting)
-                    setting.value = dir_value
-            
-            db.session.commit()
-            flash("Settings saved.", "success")
-        
-        return redirect(url_for("main.settings"))
+                dir_val = request.form.get(dir_key, "").strip()
+                setting = Setting.query.get(dir_key)
+                if not setting:
+                    setting = Setting(key=dir_key)
+                    db.session.add(setting)
+                setting.value = dir_val
 
+            all_settings = Setting.query.all()
+            for s in all_settings:
+                if s.key.startswith("dir_custom_"):
+                    label = s.key[len("dir_custom_"):]
+                    val = request.form.get(f"custom_dir_{label}", "").strip()
+                    s.value = val
+
+            db.session.commit()
+            flash("Download directory settings saved.", "success")
+            active_tab = "download-dirs"
+
+        elif action == "add_custom_dir":
+            label = request.form.get("new_custom_dir_label", "").strip()
+            folder_path = request.form.get("new_custom_dir_path", "").strip()
+            if label and folder_path:
+                clean_label = re.sub(r'[^a-zA-Z0-9_\-]', '_', label)
+                key = f"dir_custom_{clean_label}"
+                setting = Setting.query.get(key)
+                if not setting:
+                    setting = Setting(key=key)
+                    db.session.add(setting)
+                setting.value = folder_path
+                db.session.commit()
+                flash(f"Created custom download directory entry '{clean_label}'.", "success")
+            else:
+                flash("Label and Folder Path are required for custom directory entry.", "error")
+            active_tab = "download-dirs"
+
+        elif action.startswith("delete_custom_dir:"):
+            label_to_del = action.split(":", 1)[1]
+            key = f"dir_custom_{label_to_del}"
+            setting = Setting.query.get(key)
+            if setting:
+                db.session.delete(setting)
+                db.session.commit()
+                flash(f"Deleted custom download directory entry '{label_to_del}'.", "info")
+            active_tab = "download-dirs"
+
+        # 3. Plugin Management Actions
+        elif action == "add_plugin_repo":
+            repo_url = request.form.get("repo_url", "").strip()
+            if repo_url:
+                short_name, canonical_url = plugin_manager.normalize_github_url(repo_url)
+                existing = PluginRepo.query.filter_by(repo_url=canonical_url).first()
+                if existing:
+                    flash("Repository is already in your repository list.", "warning")
+                else:
+                    remote_info = plugin_manager.fetch_remote_manifest(canonical_url)
+                    name = remote_info.get("name", short_name) if remote_info else short_name
+                    desc = remote_info.get("description", "GitHub Plugin Repository") if remote_info else "GitHub Plugin Repository"
+                    new_repo = PluginRepo(repo_url=canonical_url, name=name, description=desc)
+                    db.session.add(new_repo)
+                    db.session.commit()
+                    flash(f"Plugin repository '{name}' added successfully!", "success")
+            else:
+                flash("Please provide a valid GitHub repository URL or owner/repo.", "error")
+            active_tab = "plugins"
+
+        elif action.startswith("remove_plugin_repo:"):
+            repo_id = int(action.split(":", 1)[1])
+            repo = PluginRepo.query.get(repo_id)
+            if repo:
+                db.session.delete(repo)
+                db.session.commit()
+                flash(f"Removed repository '{repo.name or repo.repo_url}'.", "info")
+            active_tab = "plugins"
+
+        elif action == "check_plugin_updates":
+            updates = plugin_manager.check_updates()
+            has_updates = any(v.get("has_update") for v in updates.values())
+            if has_updates:
+                flash("Plugin update check complete: Updates are available!", "info")
+            else:
+                flash("Plugin update check complete: All installed plugins are up to date.", "success")
+            active_tab = "plugins"
+
+        elif action == "install_plugin":
+            repo_url = request.form.get("repo_url", "").strip()
+            volume_paths = {}
+            for k, v in request.form.items():
+                if k.startswith("vol_"):
+                    env_var = k[4:]
+                    volume_paths[env_var] = v.strip()
+
+            success, msg = plugin_manager.install_plugin(repo_url, volume_paths)
+            if success:
+                flash(f"{msg} Notice: Volume paths written to .env and docker-compose.yml. Rerun 'docker compose up -d' to mount new volumes.", "success")
+            else:
+                flash(f"Failed to install plugin: {msg}", "error")
+            active_tab = "plugins"
+
+        elif action.startswith("update_plugin:"):
+            plugin_id = action.split(":", 1)[1]
+            success, msg = plugin_manager.update_plugin(plugin_id)
+            if success:
+                flash(f"{msg} Please restart your container if necessary.", "success")
+            else:
+                flash(f"Update failed: {msg}", "error")
+            active_tab = "plugins"
+
+        elif action.startswith("uninstall_plugin:"):
+            plugin_id = action.split(":", 1)[1]
+            success, msg = plugin_manager.uninstall_plugin(plugin_id)
+            if success:
+                flash(f"{msg} Compose volumes cleaned up. Run 'docker compose up -d' to restart without this plugin.", "info")
+            else:
+                flash(f"Uninstall failed: {msg}", "error")
+            active_tab = "plugins"
+
+        elif action.startswith("save_plugin_volumes:"):
+            plugin_id = action.split(":", 1)[1]
+            manifest = plugin_manager.loaded_plugins.get(plugin_id, {})
+            volume_paths = {}
+            for k, v in request.form.items():
+                if k.startswith(f"vol_{plugin_id}_"):
+                    env_var = k[len(f"vol_{plugin_id}_"):]
+                    volume_paths[env_var] = v.strip()
+
+            plugin_manager.apply_volume_config(manifest, volume_paths)
+            flash(f"Volume settings saved for '{plugin_id}'. Run 'docker compose up -d' to apply new mount points.", "success")
+            active_tab = "plugins"
+
+        elif action.startswith("toggle_plugin:"):
+            plugin_id = action.split(":", 1)[1]
+            manifest = plugin_manager.loaded_plugins.get(plugin_id, {})
+            currently_enabled = manifest.get("_enabled", True)
+            plugin_manager.toggle_plugin(plugin_id, not currently_enabled)
+            status_str = "disabled" if currently_enabled else "enabled"
+            flash(f"Plugin '{plugin_id}' has been {status_str}.", "info")
+            active_tab = "plugins"
+
+        return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
+
+    # GET Request context
     api_key = session.get("api_key")
     user = session.get("user")
-    
-    # Load directory settings
+
     directories = {}
     for model_type in MODEL_TYPES:
         setting = Setting.query.get(f"dir_{model_type}")
         directories[model_type] = setting.value if setting else ""
-        
-    return render_template("settings.html", api_key=api_key, user=user, model_types=MODEL_TYPES, directories=directories)
 
+    custom_directories = {}
+    all_settings = Setting.query.all()
+    for s in all_settings:
+        if s.key.startswith("dir_custom_"):
+            label = s.key[len("dir_custom_"):]
+            custom_directories[label] = s.value or ""
+
+    plugin_repos = PluginRepo.query.order_by(PluginRepo.created_at.desc()).all()
+    installed_plugins = plugin_manager.get_installed_plugins()
+    available_plugins = plugin_manager.get_available_uninstalled_plugins()
+
+    env_values = {}
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_file = os.path.join(root_dir, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        env_values[k.strip()] = v.strip()
+        except Exception:
+            pass
+
+    return render_template(
+        "settings.html",
+        api_key=api_key,
+        user=user,
+        model_types=MODEL_TYPES,
+        directories=directories,
+        custom_directories=custom_directories,
+        plugin_repos=plugin_repos,
+        installed_plugins=installed_plugins,
+        available_plugins=available_plugins,
+        env_values=env_values,
+        active_tab=active_tab,
+    )
 
 @main.route("/download/<int:model_id>/<int:version_id>")
 def download(model_id, version_id):
@@ -496,7 +634,6 @@ def download(model_id, version_id):
         return redirect(url_for("main.settings"))
 
     download_manager.add_task(model_id, version_id, api_key)
-    
     flash("Download added to queue.", "info")
     return redirect(request.referrer or url_for("main.model_detail", model_id=model_id))
 
@@ -507,28 +644,12 @@ def download_status():
 @main.route("/settings/scan", methods=["POST"])
 def scan_library():
     api_key = session.get("api_key")
-    # Allow scan even if not logged in? 
-    # Yes, but API lookup might be rate limited or restricted.
-    # But we pass api_key if available.
-    
     download_manager.add_task(task_type='scan', api_key=api_key)
     flash("Library scan started in background.", "info")
-    return redirect(url_for("main.settings"))
+    return redirect(url_for("main.settings", tab="library") + "#library")
 
 @main.context_processor
 def inject_downloaded_models():
-    if not session.get("api_key"): # Only check if logged in? Or always?
-        # Let's check always, but maybe cache or optimize?
-        # For now, just query.
-        pass
-        
-    # Get all downloads: {model_id: latest_version_id}
-    # If multiple versions downloaded, we might want to know.
-    # But for "Update Available", we need to know the *latest* downloaded version vs current.
-    # Actually, we just need to know IF we have it, and WHICH version we have.
-    # If we have version A, and model has version B (newer), it's an update.
-    # Let's return a dict: {model_id: [list of version_ids]}
-    
     downloads = Download.query.all()
     downloaded_models = {}
     for d in downloads:
@@ -541,14 +662,11 @@ def inject_downloaded_models():
 @main.route("/library")
 def library():
     type_filter = request.args.get("type")
-    
     query = Download.query
     if type_filter:
         query = query.filter_by(type=type_filter)
         
     models = query.all()
-    
-    # Get unique types for sidebar
     all_types = db.session.query(Download.type).distinct().all()
     types = [t[0] for t in all_types if t[0]]
     
@@ -556,11 +674,8 @@ def library():
 
 @main.route("/files/<path:filename>")
 def serve_file(filename):
-    # Ensure filename is absolute
     if not filename.startswith('/'):
         filename = '/' + filename
-        
     if not os.path.exists(filename):
         return "File not found", 404
-        
     return send_file(filename)

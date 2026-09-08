@@ -1,0 +1,46 @@
+# SDCodex — Docker Compose (Modular Plugin Architecture)
+#
+# Core SDCodex provides Home, Models, and Library.
+# Additional capabilities (Captioning/Gallery/ComfyUI, GalleryDL, RemBG)
+# are installed as plugins via Settings -> Plugins.
+#
+# Installing a plugin updates the volume mounts below and the .env file.
+# After installing or reconfiguring a plugin, restart with:
+#   docker compose up -d
+
+services:
+  sdcodex:
+#    build: .
+    image: nakedzombie/sdcodex:latest
+    container_name: sdcodex
+    restart: unless-stopped
+    ports:
+      - "${SDCODEX_PORT:-5001}:5001"
+    environment:
+      PORT: "5001"
+      SECRET_KEY: "${SECRET_KEY:-}"
+      DATABASE_URL: "sqlite:////data/db/sdcodex.db"
+      PUID: 1000
+      PGID: 1000
+      PLUGINS_DIR: /app/plugins
+      # Environment variables for plugins (if installed)
+      TASKS_DIR: /data/tasks
+      CONFIG_DIR: /data/config
+      DOWNLOADS_DIR: /data/downloads
+      HF_HOME: /data/huggingface
+      REMBG_OUTPUT: /data/rembg_output
+    volumes:
+      # Core volume mounts
+      - ${DB:-./db}:/data/db
+      - ${MODELS:-./app/static/downloads}:/app/app/static/downloads
+      - ./plugins:/app/plugins
+      # --- PLUGIN VOLUMES START ---
+      # --- PLUGIN VOLUMES END ---
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://127.0.0.1:${PORT:-5001}/healthz', timeout=5)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 30s

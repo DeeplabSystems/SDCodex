@@ -12,6 +12,9 @@ build/
 develop-eggs/
 dist/
 downloads/
+tasks/
+Huggingface/
+
 eggs/
 .eggs/
 lib/
@@ -39,8 +42,12 @@ venv.bak/
 instance/
 civitr.db
 models.db
+db/
 app/static/saved_gallery/
-
+config/kiosks/
+config/media_wall/
+config/gallery-dl.conf
+config/one_time_download.log
 # Tests
 .pytest_cache/
 

@@ -1,0 +1,28 @@
+# VCS
+.git
+.gitignore
+
+# Python
+.venv
+venv
+env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Runtime persistent data (mounted as volumes — never baked into the image)
+tasks/
+downloads/
+config/
+db/
+civitr.db
+models.db
+app/static/saved_gallery/
+app/static/downloads/
+app/static/uploads/
+
+# Local junk
+session-ses_*.md
+.xdp-*
+.env

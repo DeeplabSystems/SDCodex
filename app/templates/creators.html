@@ -36,7 +36,7 @@
                     </div>
                 </div>
 
-                <a href="{{ url_for('main.creator_detail', creator_id=creator.id) }}"
+                <a href="{{ url_for('main.creator_detail', creator_id=creator.id) if creator.get('id') else url_for('main.creator_detail', username=creator.username) }}"
                     class="btn btn-outline-primary">View Profile</a>
             </div>
         </div>

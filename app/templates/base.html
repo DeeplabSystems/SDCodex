@@ -17,6 +17,7 @@
         (function () {
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', savedTheme);
+            document.documentElement.setAttribute('data-bs-theme', savedTheme);
         })();
     </script>
     {% block styles %}{% endblock %}
@@ -33,176 +34,126 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
-                            aria-expanded="false">
-                            <i class="fas fa-globe me-1"></i> Civitai
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.index') }}">
+                            <i class="fas fa-home me-1"></i> Home
                         </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{{ url_for('main.models') }}">All Models</a></li>
-                            <li>
-                                <hr class="dropdown-divider">
-                            </li>
-                            {% for type in model_types %}
-                            <li><a class="dropdown-item" href="{{ url_for('main.models', type=type) }}">{{ type }}</a>
-                            </li>
-                            {% endfor %}
-                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.models') }}">
+                            <i class="fas fa-cubes me-1"></i> Models
+                        </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('main.library') }}">
-                            <i class="fas fa-folder me-1"></i> Models
+                            <i class="fas fa-book-open me-1"></i> Library
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main.captioning') }}">
-                            <i class="fas fa-edit me-1"></i> Captioning
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main.gallery') }}">
-                            <i class="fas fa-images me-1"></i> Gallery
-                        </a>
-                    </li>
+                    <!-- Dynamic Plugin Navigation -->
+                    {% if plugin_nav_items %}
+                        {% for item in plugin_nav_items %}
+                            {% if item.dropdown %}
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+                                    <i class="{{ item.icon or 'fas fa-puzzle-piece' }} me-1"></i> {{ item.label }}
+                                </a>
+                                <ul class="dropdown-menu shadow">
+                                    {% for sub in item.dropdown %}
+                                    <li>
+                                        <a class="dropdown-item" href="{{ sub.url }}">
+                                            {% if sub.icon %}<i class="{{ sub.icon }} me-2"></i>{% endif %}{{ sub.label }}
+                                        </a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </li>
+                            {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ item.url }}">
+                                    <i class="{{ item.icon or 'fas fa-puzzle-piece' }} me-1"></i> {{ item.label }}
+                                </a>
+                            </li>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
 
                 </ul>
                 <div class="d-flex align-items-center">
                     <button id="theme-toggle" class="btn btn-link nav-icon me-2" title="Toggle Theme">
                         <i class="fas fa-moon"></i>
                     </button>
-                    <a href="{{ url_for('main.settings') }}" class="nav-icon me-3" title="Settings">
+                    <a href="{{ url_for('main.settings', tab='plugins') if (plugin_updates_count and plugin_updates_count > 0) else url_for('main.settings') }}" class="nav-icon me-3 position-relative" title="Settings">
                         <i class="fas fa-cog fa-lg"></i>
+                        {% if plugin_updates_count and plugin_updates_count > 0 %}
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.65rem;" title="{{ plugin_updates_count }} plugin update(s) available">
+                            {{ plugin_updates_count }}
+                        </span>
+                        {% endif %}
                     </a>
-                    <form class="d-flex" action="{{ url_for('main.search') }}" method="get">
-                        <input class="form-control me-2" type="search" name="q"
-                            placeholder="Search models, creators, tags..." aria-label="Search">
-                        <button class="btn btn-outline-primary" type="submit">
-                            <i class="fas fa-search"></i>
-                        </button>
-                    </form>
                 </div>
             </div>
         </div>
     </nav>
 
-    <main class="container mt-4">
+    <div class="container mt-4">
         {% block content %}{% endblock %}
-    </main>
+    </div>
 
-    <footer class="mt-5 py-4">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-4">
-                    <h5>SDCodex</h5>
-                    <!-- <div class="social-icons mt-3">
-                        <a href="#" class="me-2"><i class="fab fa-twitter fa-lg"></i></a>
-                        <a href="#" class="me-2"><i class="fab fa-discord fa-lg"></i></a>
-                        <a href="#" class="me-2"><i class="fab fa-github fa-lg"></i></a>
-                    </div> -->
+    <!-- Active Download Floating Notification Bar -->
+    <div id="active-download-bar" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050; display: none; max-width: 380px;">
+        <div class="card shadow-lg border-0 bg-dark text-white rounded-3">
+            <div class="card-body p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <h6 class="mb-0 text-truncate" id="download-title" style="max-width: 230px;">Downloading...</h6>
+                    </div>
+                    <span id="queue-count-badge" class="badge bg-secondary rounded-pill"></span>
                 </div>
-                <div class="col-md-4">
-                    <!--<h5>Quick Links</h5>
-                    <ul class="list-unstyled">
-                        <li><a href="{{ url_for('main.index') }}">Home</a></li>
-                        <li><a href="{{ url_for('main.models') }}">Browse Models</a></li>
-                        <li><a href="{{ url_for('main.creators') }}">Creators</a></li>
-                    </ul> -->
-                </div>
-                <div class="col-md-4 text-md-end">
-                    <!--<h5>Categories</h5>
-                    <div class="d-flex flex-wrap justify-content-md-end">
-                        {% for type in model_types %}
-                        <a href="{{ url_for('main.models', type=type) }}" class="badge bg-primary me-1 mb-1">{{ type }}</a>
-                        {% endfor %}
-                    </div>--->
-
-                </div>
-            </div>
-        </div>
-    </footer>
-
-    <!-- Back to top button -->
-    <button id="back-to-top" class="btn btn-primary btn-sm rounded-circle">
-        <i class="fas fa-arrow-up"></i>
-    </button>
-
-    <!-- Download Progress Container -->
-    <div id="download-progress-container" class="position-fixed bottom-0 end-0 p-3"
-        style="z-index: 1050; width: 350px; display: none;">
-        <div class="card shadow">
-            <div class="card-header d-flex justify-content-between align-items-center py-2">
-                <h6 class="mb-0" id="download-title">Downloading...</h6>
-                <span class="badge bg-secondary" id="queue-count" style="display: none;">0 queued</span>
-            </div>
-            <div class="card-body py-2">
-                <p class="small mb-1 text-truncate" id="download-message">Initializing...</p>
-                <div class="progress" style="height: 10px;">
-                    <div id="download-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
-                        role="progressbar" style="width: 0%"></div>
+                <p id="download-message" class="small text-secondary mb-2 text-truncate"></p>
+                <div class="progress" style="height: 6px;">
+                    <div id="download-progress-bar" class="progress-bar bg-primary" role="progressbar" style="width: 0%;"></div>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
-        // Simple polling for download status
         function checkDownloadStatus() {
-            fetch('/api/downloads/status')
-                .then(response => response.json())
+            fetch('/api/downloads/active')
+                .then(res => res.json())
                 .then(data => {
-                    const container = document.getElementById('download-progress-container');
+                    const container = document.getElementById('active-download-bar');
                     const title = document.getElementById('download-title');
                     const message = document.getElementById('download-message');
                     const progressBar = document.getElementById('download-progress-bar');
-                    const queueCount = document.getElementById('queue-count');
+                    const queueCount = document.getElementById('queue-count-badge');
 
                     let showContainer = false;
 
-                    // 1. Check Active Task
                     if (data.current_task) {
                         showContainer = true;
-                        if (data.current_task.type === 'scan') {
-                            title.textContent = "Scanning Library...";
+                        title.textContent = data.current_task.title || "Downloading...";
+                        message.textContent = data.current_task.message || "In progress";
+                        const pct = data.current_task.progress !== null ? data.current_task.progress : 100;
+                        progressBar.style.width = pct + '%';
+                        if (data.current_task.progress === null) {
+                            progressBar.classList.add('progress-bar-striped');
+                            progressBar.classList.add('progress-bar-animated');
                         } else {
-                            title.textContent = "Downloading...";
-                        }
-                        message.textContent = data.current_task.message;
-                        progressBar.style.width = data.current_task.progress + '%';
-                        progressBar.classList.remove('bg-danger', 'bg-success');
-                        progressBar.classList.add('progress-bar-animated');
-                    }
-                    // 2. Check Recent Failure (if no active task)
-                    else if (data.recent_history && data.recent_history.length > 0) {
-                        const lastTask = data.recent_history[data.recent_history.length - 1];
-                        if (lastTask.status === 'failed') {
-                            showContainer = true;
-                            if (lastTask.type === 'scan') {
-                                title.textContent = "Scan Failed";
-                            } else {
-                                title.textContent = "Download Failed";
-                            }
-                            message.textContent = lastTask.message;
-                            progressBar.style.width = '100%';
-                            progressBar.classList.add('bg-danger');
+                            progressBar.classList.remove('progress-bar-striped');
                             progressBar.classList.remove('progress-bar-animated');
-                        } else if (lastTask.status === 'completed') {
-                            // Optionally show success for a few seconds?
-                            // For now, let's just show it if queue is empty, or maybe not.
-                            // Let's show "Download Complete" if we just finished.
-                            // But polling might catch it late.
-                            // Let's rely on queue count if we are idle.
                         }
                     }
 
-                    // 3. Check Queue
-                    if (data.queue_length > 0) {
+                    if (data.queued_count > 0) {
                         showContainer = true;
                         queueCount.style.display = 'inline-block';
-                        queueCount.textContent = data.queue_length + ' queued';
-
-                        // If no active task but items queued, it means worker is picking up.
+                        queueCount.textContent = `+${data.queued_count} in queue`;
                         if (!data.current_task) {
                             title.textContent = "Processing Queue...";
                             message.textContent = "Waiting for worker...";
@@ -219,7 +170,6 @@
                 .catch(err => console.error('Error checking download status:', err));
         }
 
-        // Poll every 1 second
         setInterval(checkDownloadStatus, 1000);
     </script>
     <script>
@@ -228,9 +178,9 @@
             const newTheme = currentTheme === 'light' ? 'dark' : 'light';
 
             document.documentElement.setAttribute('data-theme', newTheme);
+            document.documentElement.setAttribute('data-bs-theme', newTheme);
             localStorage.setItem('theme', newTheme);
 
-            // Update icon
             const icon = this.querySelector('i');
             if (newTheme === 'dark') {
                 icon.classList.remove('fa-moon');
@@ -241,9 +191,9 @@
             }
         });
 
-        // Initialize icon on load
         (function () {
             const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', currentTheme);
             const icon = document.querySelector('#theme-toggle i');
             if (currentTheme === 'dark') {
                 icon.classList.remove('fa-moon');
