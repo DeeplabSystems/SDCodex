@@ -191,3 +191,24 @@ dropdown; the gear on the plugin card opens Settings `?tab=plugin-<id>`.
   hit directly.
 - The plugin-card Settings button uses
   `url_for('main.settings', tab='plugin-' + plugin.id)`.
+## Plugin versioning (update-detection)
+
+**Lesson:** code changes to a plugin must be accompanied by a **version bump** in
+the plugin's `plugin.json`, or `check_updates` will never flag an update (it
+compares installed vs remote `version`, and if both stay `1.0.0` nothing looks
+changed even though code moved). This caused "nothing changed / still on v1".
+
+Convention:
+- Bump `version` in the plugin repo's `plugin.json` whenever behavior changes.
+- Mirror the same version in the **store** `plugins.json` entry for that plugin.
+- Mirror it in the core `DEFAULT_PLUGIN_MANIFESTS` entry (offline/fallback).
+- The user pulls plugin changes via the Settings -> plugin card **Update** button
+  (git pull / reinstall), not the root `update.sh` (which only updates the core
+  repo + rebuilds the image). After a plugin update, restart/`update.sh` reloads
+  the new version.
+
+All three official plugins were bumped 1.0.0 -> 1.1.0 to cover prior unreleased
+changes (gallery-dl config editor + Settings tab, rembg HFH mount fix,
+comfy-caption gallery/custom-nodes updates). Verified: card shows v1.1.0,
+"Check for Updates" reports up to date, and a simulated newer remote version
+correctly flags `has_update=True`.
