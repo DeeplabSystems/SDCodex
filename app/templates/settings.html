@@ -244,42 +244,6 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- Volume Configuration Modal for Installed Plugin -->
-                    {% if plugin.volumes %}
-                    <div class="modal fade" id="modal-vol-{{ plugin.id }}" tabindex="-1" aria-labelledby="modalVolLabel{{ plugin.id }}" aria-hidden="true">
-                        <div class="modal-dialog modal-lg">
-                            <div class="modal-content">
-                                <form method="post" action="{{ url_for('main.settings') }}">
-                                    <input type="hidden" name="action" value="save_plugin_volumes:{{ plugin.id }}">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="modalVolLabel{{ plugin.id }}"><i class="fas fa-hdd text-primary me-2"></i>Volume Mounts: {{ plugin.name }}</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <p class="text-secondary small mb-3">Configure host filesystem paths mapped to container directories. Values are written to <code>.env</code> and <code>docker-compose.yml</code>.</p>
-                                        {% for vol in plugin.volumes %}
-                                        <div class="mb-3">
-                                            <label class="form-label fw-semibold small">
-                                                <code>${{ vol.env_var }}</code> &rarr; Container: <code>{{ vol.container_path }}</code>
-                                            </label>
-                                            <input type="text" class="form-control form-control-sm font-monospace" 
-                                                   name="vol_{{ plugin.id }}_{{ vol.env_var }}" 
-                                                   value="{{ env_values.get(vol.env_var, vol.host_path) }}" 
-                                                   placeholder="{{ vol.host_path }}" required>
-                                            <div class="form-text small text-secondary">{{ vol.description }}</div>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Volume Configuration</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -324,47 +288,6 @@
                                 <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#modal-install-{{ plugin.id }}">
                                     <i class="fas fa-plus-circle me-1"></i>Install Plugin
                                 </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Install Modal with Volume Mount Fields -->
-                    <div class="modal fade" id="modal-install-{{ plugin.id }}" tabindex="-1" aria-labelledby="modalInstallLabel{{ plugin.id }}" aria-hidden="true">
-                        <div class="modal-dialog modal-lg">
-                            <div class="modal-content">
-                                <form method="post" action="{{ url_for('main.settings') }}">
-                                    <input type="hidden" name="action" value="install_plugin">
-                                    <input type="hidden" name="repo_url" value="{{ plugin.repository or plugin._repo_url }}">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="modalInstallLabel{{ plugin.id }}"><i class="fas fa-download text-success me-2"></i>Install {{ plugin.name }}</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <p class="text-secondary small mb-3">Verify the volume paths to mount on your host machine. These will be added to your <code>.env</code> file and <code>docker-compose.yml</code>.</p>
-                                        
-                                        {% if plugin.volumes %}
-                                            <h6 class="fw-bold text-uppercase text-primary mb-3" style="font-size: 12px; letter-spacing: 1px;">Required Volume Mounts</h6>
-                                            {% for vol in plugin.volumes %}
-                                            <div class="mb-3">
-                                                <label class="form-label fw-semibold small">
-                                                    Environment Variable: <code>${{ vol.env_var }}</code> &rarr; Container: <code>{{ vol.container_path }}</code>
-                                                </label>
-                                                <input type="text" class="form-control form-control-sm font-monospace" 
-                                                       name="vol_{{ vol.env_var }}" 
-                                                       value="{{ env_values.get(vol.env_var, vol.host_path) }}" 
-                                                       placeholder="{{ vol.host_path }}" required>
-                                                <div class="form-text small text-secondary">{{ vol.description }}</div>
-                                            </div>
-                                            {% endfor %}
-                                        {% else %}
-                                            <p class="text-secondary small">This plugin has no additional volume mounts required.</p>
-                                        {% endif %}
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check me-1"></i>Install & Configure</button>
-                                    </div>
-                                </form>
                             </div>
                         </div>
                     </div>
@@ -459,9 +382,99 @@
     </div>
 </div>
 
+<!-- Volume Configuration Modals for Installed Plugins -->
+{% if installed_plugins %}
+    {% for plugin in installed_plugins %}
+        {% if plugin.volumes %}
+        <div class="modal fade" id="modal-vol-{{ plugin.id }}" tabindex="-1" aria-labelledby="modalVolLabel{{ plugin.id }}" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <form method="post" action="{{ url_for('main.settings') }}">
+                        <input type="hidden" name="action" value="save_plugin_volumes:{{ plugin.id }}">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="modalVolLabel{{ plugin.id }}"><i class="fas fa-hdd text-primary me-2"></i>Volume Mounts: {{ plugin.name }}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-secondary small mb-3">Configure host filesystem paths mapped to container directories. Values are written to <code>.env</code> and <code>docker-compose.yml</code>.</p>
+                            {% for vol in plugin.volumes %}
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold small">
+                                    <code>${{ vol.env_var }}</code> &rarr; Container: <code>{{ vol.container_path }}</code>
+                                </label>
+                                <input type="text" class="form-control form-control-sm font-monospace" 
+                                       name="vol_{{ plugin.id }}_{{ vol.env_var }}" 
+                                       value="{{ env_values.get(vol.env_var, vol.host_path) }}" 
+                                       placeholder="{{ vol.host_path }}" required>
+                                <div class="form-text small text-secondary">{{ vol.description }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Volume Configuration</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
+<!-- Install Modals with Volume Mount Fields for Available Plugins -->
+{% if available_plugins %}
+    {% for plugin in available_plugins %}
+    <div class="modal fade" id="modal-install-{{ plugin.id }}" tabindex="-1" aria-labelledby="modalInstallLabel{{ plugin.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="post" action="{{ url_for('main.settings') }}">
+                    <input type="hidden" name="action" value="install_plugin">
+                    <input type="hidden" name="repo_url" value="{{ plugin.repository or plugin._repo_url }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalInstallLabel{{ plugin.id }}"><i class="fas fa-download text-success me-2"></i>Install {{ plugin.name }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-secondary small mb-3">Verify the volume paths to mount on your host machine. These will be added to your <code>.env</code> file and <code>docker-compose.yml</code>.</p>
+                        
+                        {% if plugin.volumes %}
+                            <h6 class="fw-bold text-uppercase text-primary mb-3" style="font-size: 12px; letter-spacing: 1px;">Required Volume Mounts</h6>
+                            {% for vol in plugin.volumes %}
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold small">
+                                    Environment Variable: <code>${{ vol.env_var }}</code> &rarr; Container: <code>{{ vol.container_path }}</code>
+                                </label>
+                                <input type="text" class="form-control form-control-sm font-monospace" 
+                                       name="vol_{{ vol.env_var }}" 
+                                       value="{{ env_values.get(vol.env_var, vol.host_path) }}" 
+                                       placeholder="{{ vol.host_path }}" required>
+                                <div class="form-text small text-secondary">{{ vol.description }}</div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-secondary small">This plugin has no additional volume mounts required.</p>
+                        {% endif %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check me-1"></i>Install & Configure</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
 <script>
-    // Tab preservation via URL hash and query param
+    // Move modals to body to prevent stacking context bugs with .modal-backdrop
     document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.modal').forEach(modal => {
+            document.body.appendChild(modal);
+        });
+
+        // Tab preservation via URL hash and query param
         const hash = window.location.hash;
         if (hash) {
             const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);

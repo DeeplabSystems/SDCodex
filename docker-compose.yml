@@ -29,11 +29,17 @@ services:
       DOWNLOADS_DIR: /data/downloads
       HF_HOME: /data/huggingface
       REMBG_OUTPUT: /data/rembg_output
+      COMFYUI_CUSTOM_NODES: /data/custom_nodes
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
     volumes:
       # Core volume mounts
       - ${DB:-./db}:/data/db
       - ${MODELS:-./app/static/downloads}:/app/app/static/downloads
       - ./plugins:/app/plugins
+
+      # --- PLUGIN CONFIG MOUNTS
+      - ./docker-compose.yml:/app/docker-compose.yml
+      - ./.env:/app/.env
       # --- PLUGIN VOLUMES START ---
       # --- PLUGIN VOLUMES END ---
 

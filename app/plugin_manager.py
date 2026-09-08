@@ -40,6 +40,112 @@ DEFAULT_PLUGIN_REPOSITORIES = [
     }
 ]
 
+DEFAULT_PLUGIN_MANIFESTS = {
+    "comfy-caption": {
+        "id": "comfy-caption",
+        "name": "ComfyUI Caption & Gallery",
+        "version": "1.0.0",
+        "description": "Integrated image gallery, auto-captioning with LLMs/JoyCaption, and ComfyUI custom workflow nodes.",
+        "author": "DeeplabSystems",
+        "repository": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
+        "entrypoint": "plugin:init_plugin",
+        "nav_items": [
+            {"label": "Captioning", "url": "/captioning", "icon": "fas fa-tags"},
+            {"label": "Gallery", "url": "/gallery", "icon": "fas fa-images"}
+        ],
+        "volumes": [
+            {
+                "env_var": "GALLERY",
+                "host_path": "./app/static/saved_gallery",
+                "container_path": "/app/app/static/saved_gallery",
+                "description": "Directory for saved gallery images and thumbnails"
+            },
+            {
+                "env_var": "COMFYUI_CUSTOM_NODES",
+                "host_path": "./comfyui/custom_nodes",
+                "container_path": "/data/custom_nodes",
+                "description": "ComfyUI custom-addons folder (where comfyui-sdcodex nodes will be installed)"
+            }
+        ]
+    },
+    "gallery-dl": {
+        "id": "gallery-dl",
+        "name": "GalleryDL & Tasks",
+        "version": "1.0.0",
+        "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, and OAuth configuration.",
+        "author": "DeeplabSystems",
+        "repository": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
+        "entrypoint": "plugin:init_plugin",
+        "nav_items": [
+            {
+                "label": "GalleryDL",
+                "icon": "fas fa-download",
+                "dropdown": [
+                    {"label": "Tasks", "url": "/tasks", "icon": "fas fa-tasks"},
+                    {"label": "Quick Download", "url": "/one-time", "icon": "fas fa-download"},
+                    {"label": "Kiosks", "url": "/kiosks", "icon": "fas fa-desktop"},
+                    {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"},
+                    {"label": "Config", "url": "/config", "icon": "fas fa-sliders-h"}
+                ]
+            }
+        ],
+        "volumes": [
+            {
+                "env_var": "TASKS",
+                "host_path": "./tasks",
+                "container_path": "/data/tasks",
+                "description": "Directory for background task definitions, outputs and logs"
+            },
+            {
+                "env_var": "CONFIG",
+                "host_path": "./config",
+                "container_path": "/data/config",
+                "description": "Directory for gallery-dl.conf, kiosk configurations, and secrets"
+            },
+            {
+                "env_var": "IMAGES",
+                "host_path": "./downloads",
+                "container_path": "/data/downloads",
+                "description": "Output directory for quick downloads and tools"
+            }
+        ]
+    },
+    "rembg": {
+        "id": "rembg",
+        "name": "RemBG Background Tools",
+        "version": "1.0.0",
+        "description": "High-precision background removal, replacement, and batch processing powered by BiRefNet.",
+        "author": "DeeplabSystems",
+        "repository": "https://github.com/DeeplabSystems/SDCodex-RemBG",
+        "entrypoint": "plugin:init_plugin",
+        "nav_items": [
+            {
+                "label": "RemBG",
+                "icon": "fas fa-eraser",
+                "dropdown": [
+                    {"label": "BG Remove", "url": "/rembg", "icon": "fas fa-eraser"},
+                    {"label": "BG Replace", "url": "/rembg/replace", "icon": "fas fa-layer-group"},
+                    {"label": "BG Batch", "url": "/rembg/batch", "icon": "fas fa-images"}
+                ]
+            }
+        ],
+        "volumes": [
+            {
+                "env_var": "HF_HOME",
+                "host_path": "./Huggingface",
+                "container_path": "/data/huggingface",
+                "description": "HuggingFace model cache directory for BiRefNet weights"
+            },
+            {
+                "env_var": "REMBG_OUTPUT",
+                "host_path": "./rembg_output",
+                "container_path": "/data/rembg_output",
+                "description": "Directory where processed images without backgrounds are stored"
+            }
+        ]
+    }
+}
+
 class PluginManager:
     def __init__(self):
         self.app = None
@@ -122,6 +228,13 @@ class PluginManager:
                 manifest["_path"] = plugin_path
                 manifest["_enabled"] = is_enabled
                 
+                # Ensure container environment variables are set for plugin volumes
+                for v in manifest.get("volumes", []):
+                    env_var = v.get("env_var")
+                    c_path = v.get("container_path")
+                    if env_var and c_path:
+                        os.environ.setdefault(env_var, c_path)
+
                 if not is_enabled:
                     self.loaded_plugins[plugin_id] = manifest
                     continue
@@ -161,6 +274,8 @@ class PluginManager:
 
             except Exception as e:
                 logger.warning(f"Plugin {item} skipped or failed to load: {e}")
+                manifest["_load_error"] = str(e)
+                self.loaded_plugins[plugin_id] = manifest
 
         # Update Jinja loader so templates from plugins can be rendered transparently
         if extra_template_dirs and self.app:
@@ -216,18 +331,53 @@ class PluginManager:
             
         return url, url
 
+    def _get_github_token(self):
+        token = os.environ.get("GITHUB_TOKEN")
+        if token and token.strip():
+            return token.strip()
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env_file = os.path.join(root_dir, ".env")
+        if os.path.exists(env_file):
+            try:
+                with open(env_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            if k.strip() == "GITHUB_TOKEN" and v.strip():
+                                return v.strip()
+            except Exception:
+                pass
+        return None
+
+    def get_default_manifest(self, identifier):
+        """Lookup default manifest for known official plugins."""
+        if not identifier:
+            return None
+        ident = identifier.lower().strip()
+        for k, m in DEFAULT_PLUGIN_MANIFESTS.items():
+            if k == ident or m.get("id") == ident or ident.endswith(k) or k in ident or ident in m.get("repository", "").lower():
+                import copy
+                return copy.deepcopy(m)
+        return None
+
     def fetch_remote_manifest(self, repo_url):
-        """Fetch plugin.json from GitHub or local workspace fallback."""
+        """Fetch plugin.json from GitHub, local workspace, or known defaults fallback."""
         short_name, full_url = self.normalize_github_url(repo_url)
-        
-        # Check local sibling directory first (for development / offline environments)
         repo_name = short_name.split("/")[-1] if "/" in short_name else short_name
+        
+        # Check local sibling / dev directories first
         local_candidates = [
+            os.environ.get("LOCAL_PLUGINS_DIR"),
             os.path.join(os.path.dirname(self.plugins_dir), "..", repo_name),
+            os.path.join("/workspace", repo_name),
+            os.path.join("/plugins_dev", repo_name),
             os.path.join("/home/naked/workspace/deeplabs", repo_name),
             os.path.join("/home/naked/dev", repo_name)
         ]
         for candidate in local_candidates:
+            if not candidate:
+                continue
             cand_manifest = os.path.join(candidate, "plugin.json")
             if os.path.exists(cand_manifest):
                 try:
@@ -239,8 +389,13 @@ class PluginManager:
                 except Exception:
                     pass
 
-        # Try fetching from GitHub raw content
+        # Try fetching from GitHub (supporting authenticated requests for private repos)
+        token = self._get_github_token()
         headers = {"User-Agent": "SDCodex-Plugin-Manager/1.0"}
+        if token:
+            headers["Authorization"] = f"token {token}"
+
+        # 1. Try raw.githubusercontent.com
         for branch in ["main", "master"]:
             raw_url = f"https://raw.githubusercontent.com/{short_name}/{branch}/plugin.json"
             try:
@@ -251,6 +406,25 @@ class PluginManager:
                     return data
             except Exception:
                 continue
+
+        # 2. Try GitHub API contents endpoint (if token available or raw returned 404)
+        api_url = f"https://api.github.com/repos/{short_name}/contents/plugin.json"
+        api_headers = dict(headers)
+        api_headers["Accept"] = "application/vnd.github.v3.raw"
+        try:
+            req = urllib.request.Request(api_url, headers=api_headers)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode("utf-8"))
+                data["_source_type"] = "github"
+                return data
+        except Exception:
+            pass
+
+        # 3. Fallback: Return known default manifest with volume definitions if available
+        default_manifest = self.get_default_manifest(short_name)
+        if default_manifest:
+            default_manifest["_source_type"] = "default"
+            return default_manifest
 
         return None
 
@@ -301,10 +475,16 @@ class PluginManager:
                         manifest["_repo_url"] = repo.repo_url
                         available.append(manifest)
                 else:
-                    # Generic entry if manifest could not be read
                     short_name, full_url = self.normalize_github_url(repo.repo_url)
                     repo_slug = short_name.split("/")[-1].lower()
-                    if not any(repo_slug in pid for pid in self.loaded_plugins):
+                    default_m = self.get_default_manifest(repo_slug)
+                    if default_m:
+                        plugin_id = default_m.get("id", repo_slug)
+                        if plugin_id not in self.loaded_plugins:
+                            default_m["_repo_id"] = repo.id
+                            default_m["_repo_url"] = repo.repo_url
+                            available.append(default_m)
+                    elif not any(repo_slug in pid for pid in self.loaded_plugins):
                         available.append({
                             "id": repo_slug,
                             "name": repo.name or repo_slug,
@@ -321,8 +501,9 @@ class PluginManager:
         """Clones/copies plugin to plugins_dir, configures .env and docker-compose.yml."""
         short_name, full_url = self.normalize_github_url(repo_url)
         manifest = self.fetch_remote_manifest(repo_url)
+        repo_name = short_name.split("/")[-1] if "/" in short_name else short_name
         
-        plugin_id = manifest.get("id") if manifest else short_name.split("/")[-1].lower()
+        plugin_id = manifest.get("id") if manifest else repo_name.lower()
         target_dir = os.path.join(self.plugins_dir, plugin_id)
 
         # 1. Install Code
@@ -333,16 +514,51 @@ class PluginManager:
                 shutil.rmtree(target_dir)
             shutil.copytree(manifest["_local_path"], target_dir, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         else:
-            # Git clone
+            # Git clone (using auth token if available)
+            token = self._get_github_token()
+            clone_url = full_url
+            if token and "github.com" in full_url:
+                clone_url = f"https://x-access-token:{token}@github.com/{short_name}.git"
+
             if os.path.exists(target_dir):
                 cmd = ["git", "-C", target_dir, "pull", "origin", "main"]
+                res = subprocess.run(cmd, capture_output=True, text=True)
             else:
-                cmd = ["git", "clone", full_url, target_dir]
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0 and not os.path.exists(target_dir):
-                # Try master branch or ssh url
-                cmd = ["git", "clone", f"git@github.com:{short_name}.git", target_dir]
-                subprocess.run(cmd, capture_output=True, text=True)
+                cmd = ["git", "clone", clone_url, target_dir]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode != 0:
+                    # Try master branch
+                    cmd = ["git", "clone", "-b", "master", clone_url, target_dir]
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+
+            # If git clone failed, try checking local candidates fallback
+            if not os.path.exists(target_dir):
+                local_candidates = [
+                    os.environ.get("LOCAL_PLUGINS_DIR"),
+                    os.path.join(os.path.dirname(self.plugins_dir), "..", repo_name),
+                    os.path.join("/workspace", repo_name),
+                    os.path.join("/plugins_dev", repo_name),
+                    os.path.join("/home/naked/workspace/deeplabs", repo_name),
+                    os.path.join("/home/naked/dev", repo_name)
+                ]
+                for candidate in local_candidates:
+                    if candidate and os.path.exists(candidate) and os.path.exists(os.path.join(candidate, "plugin.json")):
+                        import shutil
+                        shutil.copytree(candidate, target_dir, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+                        break
+
+        # 1b. Install plugin requirements if requirements.txt exists
+        req_path = os.path.join(target_dir, "requirements.txt")
+        if os.path.exists(req_path):
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+            except Exception as pip_err:
+                logger.warning(f"Could not install requirements for {plugin_id}: {pip_err}")
 
         # 2. Re-read manifest from installed directory
         installed_manifest_path = os.path.join(target_dir, "plugin.json")
@@ -350,14 +566,15 @@ class PluginManager:
             with open(installed_manifest_path, "r", encoding="utf-8") as f:
                 installed_manifest = json.load(f)
         else:
-            installed_manifest = manifest or {"id": plugin_id, "name": plugin_id, "volumes": []}
+            installed_manifest = manifest or self.get_default_manifest(plugin_id) or {"id": plugin_id, "name": plugin_id, "volumes": []}
 
         # 3. Configure Volumes in .env and docker-compose.yml
         if volume_paths is None:
             volume_paths = {}
-            for v in installed_manifest.get("volumes", []):
-                env_var = v.get("env_var")
-                default_host = v.get("host_path", "")
+        for v in installed_manifest.get("volumes", []):
+            env_var = v.get("env_var")
+            default_host = v.get("host_path", "")
+            if env_var and (env_var not in volume_paths or not volume_paths[env_var]):
                 volume_paths[env_var] = default_host
 
         self.apply_volume_config(installed_manifest, volume_paths)
