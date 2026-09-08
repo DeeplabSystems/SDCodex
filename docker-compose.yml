@@ -24,13 +24,6 @@ services:
       PGID: "${PGID:-${GID:-${GUID:-1000}}}"
       UMASK: "${UMASK:-002}"
       PLUGINS_DIR: /app/plugins
-      # Environment variables for plugins (if installed)
-      TASKS_DIR: /data/tasks
-      CONFIG_DIR: /data/config
-      DOWNLOADS_DIR: /data/downloads
-      HF_HOME: /data/huggingface
-      REMBG_OUTPUT: /data/rembg_output
-      COMFYUI_CUSTOM_NODES: /data/custom_nodes
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
     entrypoint: ["/entrypoint.sh"]
     volumes:
