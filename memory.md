@@ -171,3 +171,23 @@ core code changes.
 Each `plugins[]` entry maps a plugin id to its GitHub repo. On install and for
 version checks, the per-repo `plugin.json` is still fetched for the full
 manifest (volumes, nav, entrypoint).
+
+## Per-plugin Settings tabs (gallery-dl config lives in Settings)
+
+Plugin settings pages are **tabs inside the SDCodex Settings page**, not
+top-nav dropdown items. The gallery-dl "Config" item was removed from its nav
+dropdown; the gear on the plugin card opens Settings `?tab=plugin-<id>`.
+
+- Mechanism: a `settings` key in the plugin manifest:
+  `{ "label": "...", "url": "...", "icon": "..." }`. Any enabled installed
+  plugin with `settings` gets a Settings tab (id `tab-plugin-<id>`,
+  `active_tab == 'plugin-<id>'`).
+- The Settings tab body is an **iframe** embedding `settings.url?embed=1`.
+  The plugin route must honor `?embed=1` and render a chrome-free fragment.
+- gallery-dl config.html was split into `_config_content.html` (the content
+  partial), `config.html` (extends base.html, includes the partial), and
+  `config_embed.html` (fragment, no base chrome). `config_page` serves the
+  embed fragment when `?embed=1` is present; the full page still works when
+  hit directly.
+- The plugin-card Settings button uses
+  `url_for('main.settings', tab='plugin-' + plugin.id)`.
