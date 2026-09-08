@@ -17,6 +17,18 @@ services:
     ports:
       - "${SDCODEX_PORT:-5001}:5001"
     environment:
+      # --- PLUGIN ENV START ---
+      # [gallery-dl]
+      TASKS: "/data/tasks"
+      CONFIG: "/data/config"
+      IMAGES: "/data/downloads"
+      # [comfy-caption]
+      GALLERY: "/app/app/static/saved_gallery"
+      COMFYUI_CUSTOM_NODES: "/data/custom_nodes"
+      # [rembg]
+      HFH: "/data/huggingface"
+      REMBG_OUTPUT: "/data/rembg_output"
+      # --- PLUGIN ENV END ---
       PORT: "5001"
       SECRET_KEY: "${SECRET_KEY:-}"
       DATABASE_URL: "sqlite:////data/db/sdcodex.db"
@@ -41,6 +53,16 @@ services:
       - ./requirements.txt:/app/requirements.txt
       # --- PLUGIN VOLUMES START ---
       # (Installed plugin volume mounts are appended here by Settings -> Plugins)
+      # [gallery-dl]
+      - ${TASKS:-./tasks}:/data/tasks
+      - ${CONFIG:-./config}:/data/config
+      - ${IMAGES:-./downloads}:/data/downloads
+      # [comfy-caption]
+      - ${GALLERY:-.gallery}:/app/app/static/saved_gallery
+      - ${COMFYUI_CUSTOM_NODES:-./comfyui/custom_nodes}:/data/custom_nodes
+      # [rembg]
+      - ${HFH:-./Huggingface}:/data/huggingface
+      - ${REMBG_OUTPUT:-./rembg_output}:/data/rembg_output
       # --- PLUGIN VOLUMES END ---
 
     healthcheck:

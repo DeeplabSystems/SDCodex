@@ -1,0 +1,8 @@
+
+services:
+  sdcodex:
+    volumes:
+      # --- PLUGIN VOLUMES START ---
+      # (Installed plugin volume mounts are appended here by Settings -> Plugins)
+      # --- PLUGIN VOLUMES END ---
+
