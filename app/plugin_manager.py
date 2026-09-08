@@ -24,7 +24,7 @@ def parse_version(v_str):
 # Default official plugin repositories
 DEFAULT_PLUGIN_REPOSITORIES = [
     {
-        "url": "https://github.com/DeeplabSystems/SDCodec-ComfyCaption",
+        "url": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
         "name": "ComfyUI Caption & Gallery",
         "description": "Image gallery, auto-captioning with LLMs/JoyCaption, and ComfyUI integration nodes."
     },

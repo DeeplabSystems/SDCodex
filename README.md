@@ -23,7 +23,7 @@ SDCodex features an extensible plugin architecture. The core application provide
 
 ### Official Plugins
 
-1. **[SDCodec-ComfyCaption](https://github.com/DeeplabSystems/SDCodec-ComfyCaption)**
+1. **[SDCodex-ComfyCaption](https://github.com/DeeplabSystems/SDCodex-ComfyCaption)**
    - Integrated image gallery, workflow inspector, and dataset tagger.
    - Auto-captioning with vision LLMs and JoyCaption.
    - Custom ComfyUI nodes (`comfyui-sdcodex`) to browse and load SDCodex galleries in workflows.
