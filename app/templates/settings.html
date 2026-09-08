@@ -265,8 +265,8 @@
 
             <!-- Available Plugins to Install -->
             <div class="mb-4">
-                <h5 class="fw-bold"><i class="fas fa-store text-primary me-2"></i>Available Plugins from Repositories</h5>
-                <p class="text-secondary small mb-3">Discover and install plugins from your added GitHub repositories</p>
+                <h5 class="fw-bold"><i class="fas fa-store text-primary me-2"></i>Available Plugins from Store</h5>
+                <p class="text-secondary small mb-3">Discover and install plugins published in the plugin store</p>
             </div>
 
             {% if available_plugins %}
@@ -329,62 +329,119 @@
                 </div>
             </div>
 
-            <!-- Registered Plugin Repositories Management -->
+            <!-- GitHub Store Repositories -->
             <div class="card mb-4 shadow-sm">
-                <div class="card-header bg-body-tertiary">
-                    <h5 class="mb-0"><i class="fab fa-github text-primary me-2"></i>GitHub Plugin Repositories</h5>
+                <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fa-solid fa-store text-primary me-2"></i>GitHub Store Repositories</h5>
+                    <form method="post" action="{{ url_for('main.settings') }}">
+                        <input type="hidden" name="action" value="check_plugin_updates">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-sync-alt me-1"></i>Check for Updates
+                        </button>
+                    </form>
                 </div>
                 <div class="card-body">
-                    <p class="text-secondary small mb-4">Register GitHub repository URLs to discover community or custom plugins and receive update notifications.</p>
+                    <p class="text-secondary small mb-3">
+                        Plugins are published through the plugin store's <code>plugins.json</code> manifest.
+                        Adding a new plugin there makes it installable without changing SDCodex itself.
+                    </p>
 
-                    <!-- Add Repository Form -->
-                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end mb-4">
-                        <input type="hidden" name="action" value="add_plugin_repo">
-                        <div class="col-md-9">
-                            <label for="repo_url" class="form-label small fw-semibold">GitHub Repository URL or owner/repo</label>
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text"><i class="fab fa-github"></i></span>
-                                <input type="text" class="form-control" id="repo_url" name="repo_url" placeholder="https://github.com/DeeplabSystems/SDCodex-GalleryDL" required>
+                    <!-- Store Repository Card -->
+                    <div class="d-flex align-items-start gap-3 p-3 border rounded" style="background: var(--bg-muted);">
+                        <div class="flex-grow-1">
+                            <h6 class="mb-1 fw-bold"><i class="fa-solid fa-store me-1 text-primary"></i>{{ store_info.store.name }}</h6>
+                            {% if store_info.store.description %}
+                            <p class="text-secondary small mb-1">{{ store_info.store.description }}</p>
+                            {% endif %}
+                            <p class="mb-1">
+                                <a href="{{ store_info.store.url or store_url }}" target="_blank" rel="noopener noreferrer" class="small font-monospace text-decoration-none">
+                                    {{ store_info.store.url or store_url }}
+                                </a>
+                            </p>
+                            <div class="d-flex flex-wrap align-items-center gap-2 small">
+                                {% if not store_info.store.reachable %}
+                                <span class="badge bg-danger">unreachable</span>
+                                <span class="text-muted">Trying local clone / cached defaults</span>
+                                {% elif store_info.store.source_type == 'local' %}
+                                <span class="badge bg-warning text-dark">local: {{ store_info.store.local_path }}</span>
+                                {% else %}
+                                <span class="badge bg-success">online</span>
+                                {% endif %}
+                                {% if store_info.last_checked %}
+                                <span class="text-muted">Last checked: {{ store_info.last_checked }}</span>
+                                {% endif %}
+                                <span class="badge bg-secondary">{{ store_info.plugins|length }} plugin(s) in store</span>
                             </div>
                         </div>
-                        <div class="col-md-3">
-                            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-plus me-1"></i>Add Repository</button>
-                        </div>
-                    </form>
-
-                    <!-- Repositories Table -->
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Repository</th>
-                                    <th>Name</th>
-                                    <th>Description</th>
-                                    <th class="text-end">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for repo in plugin_repos %}
-                                <tr>
-                                    <td>
-                                        <a href="{{ repo.repo_url }}" target="_blank" rel="noopener noreferrer" class="font-monospace small text-decoration-none">
-                                            {{ repo.repo_url }}
-                                        </a>
-                                    </td>
-                                    <td class="fw-semibold small">{{ repo.name or '—' }}</td>
-                                    <td class="text-secondary small text-truncate" style="max-width: 300px;">{{ repo.description or '—' }}</td>
-                                    <td class="text-end">
-                                        <form method="post" action="{{ url_for('main.settings') }}" class="d-inline" onsubmit="return confirm('Remove repository {{ repo.name }}?');">
-                                            <button type="submit" name="action" value="remove_plugin_repo:{{ repo.id }}" class="btn btn-outline-danger btn-sm py-0 px-2" title="Remove Repository">
-                                                <i class="fas fa-times"></i>
-                                            </button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
                     </div>
+
+                    {% if store_info.new_plugins %}
+                    <div class="mt-4">
+                        <h6 class="fw-bold text-primary mb-2"><i class="fas fa-plus-circle me-1"></i>New plugins available in the store</h6>
+                        <ul class="list-group list-group-flush">
+                            {% for p in store_info.new_plugins %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-semibold">{{ p.name }}</span>
+                                    <span class="badge bg-info text-dark ms-2 font-monospace">v{{ p.latest_version }}</span>
+                                    {% if p.description %}<p class="text-secondary small mb-0">{{ p.description }}</p>{% endif %}
+                                </div>
+                                <span class="text-success small"><i class="fas fa-plus-circle me-1"></i>Installable</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <p class="text-secondary small mt-2">Install the new plugin(s) from the <em>Available Plugins from Store</em> section above.</p>
+                    </div>
+                    {% endif %}
+
+                    <details class="mt-4">
+                        <summary class="small text-secondary fw-semibold">Manage individual plugin repositories (advanced)</summary>
+                        <div class="mt-3">
+                            <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end mb-3">
+                                <input type="hidden" name="action" value="add_plugin_repo">
+                                <div class="col-md-9">
+                                    <label for="repo_url" class="form-label small fw-semibold">GitHub Repository URL or owner/repo</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text"><i class="fab fa-github"></i></span>
+                                        <input type="text" class="form-control" id="repo_url" name="repo_url" placeholder="https://github.com/DeeplabSystems/SDCodex-GalleryDL">
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-plus me-1"></i>Add Repository</button>
+                                </div>
+                            </form>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Repository</th>
+                                            <th>Name</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for repo in plugin_repos %}
+                                        <tr>
+                                            <td>
+                                                <a href="{{ repo.repo_url }}" target="_blank" rel="noopener noreferrer" class="font-monospace small text-decoration-none">
+                                                    {{ repo.repo_url }}
+                                                </a>
+                                            </td>
+                                            <td class="fw-semibold small">{{ repo.name or '—' }}</td>
+                                            <td class="text-end">
+                                                <form method="post" action="{{ url_for('main.settings') }}" class="d-inline" onsubmit="return confirm('Remove repository {{ repo.name }}?');">
+                                                    <button type="submit" name="action" value="remove_plugin_repo:{{ repo.id }}" class="btn btn-outline-danger btn-sm py-0 px-2" title="Remove Repository">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </details>
                 </div>
             </div>
         </div>

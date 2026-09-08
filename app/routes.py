@@ -522,12 +522,22 @@ def settings():
             active_tab = "plugins"
 
         elif action == "check_plugin_updates":
-            updates = plugin_manager.check_updates()
+            result = plugin_manager.check_updates()
+            updates = result.get("update_cache", {})
+            new_plugins = result.get("new_plugins", [])
+            store_meta = result.get("store", {})
             has_updates = any(v.get("has_update") for v in updates.values())
+
+            bits = []
             if has_updates:
-                flash("Plugin update check complete: Updates are available!", "info")
+                bits.append(f"{sum(1 for v in updates.values() if v.get('has_update'))} plugin update(s) available")
+            elif store_meta.get("reachable"):
+                bits.append("All installed plugins are up to date")
             else:
-                flash("Plugin update check complete: All installed plugins are up to date.", "success")
+                bits.append("Store could not be reached")
+            if new_plugins:
+                bits.append(f"{len(new_plugins)} new plugin(s) available in the store")
+            flash("Plugin update check complete: " + "; ".join(bits) + ".", "info" if (has_updates or new_plugins) else "success")
             active_tab = "plugins"
 
         elif action == "install_plugin":
@@ -625,6 +635,16 @@ def settings():
 
     github_token = plugin_manager._get_github_token() or env_values.get("GITHUB_TOKEN", "")
 
+    # Plugin store status (lightweight: no per-plugin version lookups on GET).
+    store_catalog = plugin_manager.get_store_catalog()
+    store_info = plugin_manager.store_info
+    store_info = {
+        "store": store_catalog["store"],
+        "plugins": store_catalog["plugins"],
+        "new_plugins": store_info.get("new_plugins", []),
+        "last_checked": store_info.get("last_checked", ""),
+    }
+
     return render_template(
         "settings.html",
         api_key=api_key,
@@ -637,6 +657,8 @@ def settings():
         available_plugins=available_plugins,
         env_values=env_values,
         github_token=github_token,
+        store_info=store_info,
+        store_url=plugin_manager.get_store_url(),
         active_tab=active_tab,
     )
 

@@ -40,6 +40,12 @@ DEFAULT_PLUGIN_REPOSITORIES = [
     }
 ]
 
+# Official plugin store. Its plugins.json is the single source of truth for
+# which plugins are installable and their latest versions. Add a plugin to that
+# JSON (in the SDCodex-Plugin-Store repo) to publish it — no code changes here.
+DEFAULT_PLUGIN_STORE_URL = "https://github.com/DeeplabSystems/SDCodex-Plugin-Store"
+PLUGIN_STORE_MANIFEST_FILE = "plugins.json"
+
 DEFAULT_PLUGIN_MANIFESTS = {
     "comfy-caption": {
         "id": "comfy-caption",
@@ -158,6 +164,12 @@ class PluginManager:
         self.plugins_dir = None
         self.loaded_plugins = {}
         self.update_cache = {}
+        self.store_info = {
+            "store": {"name": "SDCodex Plugin Store", "url": DEFAULT_PLUGIN_STORE_URL, "reachable": False},
+            "plugins": [],
+            "new_plugins": [],
+            "last_checked": None,
+        }
 
     def init_app(self, app, db):
         self.app = app
@@ -434,49 +446,249 @@ class PluginManager:
 
         return None
 
+    def get_store_url(self):
+        """Resolve the plugin store URL (env override or default official store)."""
+        return (os.environ.get("PLUGIN_STORE_URL") or DEFAULT_PLUGIN_STORE_URL).strip().rstrip("/")
+
+    def fetch_store_manifest(self):
+        """Fetch and parse the plugin store's plugins.json manifest.
+
+        Reads from the local store clone first (dev/offline), then from GitHub,
+        using the caller-supplied or env GITHUB_TOKEN for private stores.
+        Returns the parsed JSON (with a raw URL of the store, plus resolved local
+        path when available) or None on failure.
+        """
+        store_url = self.get_store_url()
+        short_name, _ = self.normalize_github_url(store_url)
+        store_repo_name = short_name.split("/")[-1] if "/" in short_name else short_name
+
+        # 1. Local store clone / dev directories first
+        local_candidates = [
+            os.environ.get("LOCAL_PLUGIN_STORE_DIR"),
+            os.environ.get("LOCAL_PLUGINS_DIR"),
+            os.path.join(os.path.dirname(self.plugins_dir), "..", store_repo_name),
+            os.path.join("/workspace", store_repo_name),
+            os.path.join("/plugins_dev", store_repo_name),
+            os.path.join("/home/naked/workspace/deeplabs", store_repo_name),
+            os.path.join("/home/naked/dev", store_repo_name),
+        ]
+        for candidate in local_candidates:
+            if not candidate:
+                continue
+            cand_file = os.path.join(candidate, PLUGIN_STORE_MANIFEST_FILE)
+            if os.path.exists(cand_file):
+                try:
+                    with open(cand_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        data["_source_type"] = "local"
+                        data["_local_path"] = os.path.abspath(candidate)
+                        data["_store_url"] = store_url
+                        return data
+                except Exception:
+                    pass
+
+        # 2. Fetch from GitHub (auth for private stores)
+        token = self._get_github_token()
+        headers = {"User-Agent": "SDCodex-Plugin-Manager/1.0"}
+        if token:
+            headers["Authorization"] = f"token {token}"
+
+        for branch in ["main", "master"]:
+            raw_url = f"https://raw.githubusercontent.com/{short_name}/{branch}/{PLUGIN_STORE_MANIFEST_FILE}"
+            try:
+                req = urllib.request.Request(raw_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                    data["_source_type"] = "github"
+                    data["_store_url"] = store_url
+                    return data
+            except Exception:
+                continue
+
+        # 3. GitHub API fallback
+        try:
+            api_url = f"https://api.github.com/repos/{short_name}/contents/{PLUGIN_STORE_MANIFEST_FILE}"
+            api_headers = {"User-Agent": "SDCodex-Plugin-Manager/1.0", "Accept": "application/vnd.github.v3.raw"}
+            if token:
+                api_headers["Authorization"] = f"token {token}"
+            req = urllib.request.Request(api_url, headers=api_headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+                data["_source_type"] = "github"
+                data["_store_url"] = store_url
+                return data
+        except Exception:
+            pass
+
+        return None
+
+    def get_store_catalog(self):
+        """Return the store manifest with a normalized dict of plugin entries.
+
+        Result:
+          { "store": <store manifest metadata + url/path>,
+            "plugins": [ <entry>, ... ] }
+          The 'plugins' list is the raw entries from plugins.json. If the store
+          cannot be reached, falls back to the default plugin list.
+        """
+        data = self.fetch_store_manifest()
+        if not data or not isinstance(data.get("plugins"), list):
+            # Fallback to default repositories for resilience/offline use.
+            plugins = []
+            for repo in DEFAULT_PLUGIN_REPOSITORIES:
+                m = self.get_default_manifest(repo["url"].rstrip("/").split("/")[-1])
+                if m is None:
+                    m = {
+                        "id": repo["url"].rstrip("/").split("/")[-1].lower(),
+                        "name": repo["name"],
+                        "description": repo["description"],
+                        "repository": repo["url"],
+                        "version": "1.0.0",
+                    }
+                plugins.append(m)
+            return {
+                "store": {
+                    "name": "SDCodex Plugin Store",
+                    "description": "Official store of SDCodex community plugins.",
+                    "url": self.get_store_url(),
+                    "reachable": False,
+                },
+                "plugins": plugins,
+            }
+
+        metadata = {
+            "name": data.get("name", "SDCodex Plugin Store"),
+            "description": data.get("description", ""),
+            "version": data.get("version", ""),
+            "url": data.get("_store_url") or self.get_store_url(),
+            "source_type": data.get("_source_type", ""),
+            "local_path": data.get("_local_path", ""),
+            "reachable": True,
+        }
+        plugins = data.get("plugins", [])
+        return {"store": metadata, "plugins": plugins}
+
     def check_updates(self):
-        """Check all installed plugins for updates from GitHub or local source."""
+        """Check the plugin store for updated versions and new plugins.
+
+        Reads plugins.json from the store, fetches each plugin's authoritative
+        manifest (from its repository), and builds:
+          - update_cache: per-installed-plugin version status (drives the
+            per-card 'Update available' and the navbar badge).
+          - store_info.new_plugins: store plugins not yet installed.
+        """
+        from datetime import datetime
+
+        catalog = self.get_store_catalog()
+        store_meta = catalog["store"]
+        store_plugins = catalog["plugins"]
+
         results = {}
+        new_plugins = []
+
+        # Build a lookup of store entries by normalized plugin id/repo sl.
+        store_by_id = {}
+        for entry in store_plugins:
+            eid = entry.get("id", "")
+            key = eid.lower()
+            if key:
+                store_by_id.setdefault(key, entry)
+
         for plugin_id, manifest in self.loaded_plugins.items():
             repo_url = manifest.get("repository")
             if not repo_url:
                 continue
-                
             remote_manifest = self.fetch_remote_manifest(repo_url)
             if not remote_manifest:
                 continue
-                
             current_ver = str(manifest.get("version", "0.0.0"))
             remote_ver = str(remote_manifest.get("version", current_ver))
-            
             try:
                 has_update = parse_version(remote_ver) > parse_version(current_ver)
             except Exception:
                 has_update = (remote_ver != current_ver)
-                
             results[plugin_id] = {
                 "has_update": has_update,
                 "current_version": current_ver,
                 "latest_version": remote_ver,
                 "repository": repo_url,
-                "remote_manifest": remote_manifest
+                "remote_manifest": remote_manifest,
             }
-            
+
+        # New plugins = store catalog entries not currently installed.
+        for entry in store_plugins:
+            eid = entry.get("id", "")
+            if not eid:
+                continue
+            if eid in self.loaded_plugins:
+                continue
+            if not any(eid == pid or eid.lower() == pid.lower() for pid in self.loaded_plugins):
+                # Resolve the plugin's latest version from its own manifest if possible
+                repo_url = entry.get("repository")
+                latest = entry.get("version", "")
+                if repo_url:
+                    remote_manifest = self.fetch_remote_manifest(repo_url)
+                    if remote_manifest:
+                        latest = str(remote_manifest.get("version", latest or "1.0.0"))
+                item = dict(entry)
+                item["latest_version"] = latest or "1.0.0"
+                new_plugins.append(item)
+
         self.update_cache = results
-        return results
+        self.store_info = {
+            "store": store_meta,
+            "plugins": store_plugins,
+            "new_plugins": new_plugins,
+            "last_checked": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        }
+        return {"update_cache": results, "new_plugins": new_plugins, "store": store_meta}
 
     def get_available_uninstalled_plugins(self):
-        """Get catalog of plugins from registered repositories that are not yet installed."""
+        """Get catalog of plugins that are not yet installed.
+
+        Primary source is the plugin store's plugins.json. Offline/unreachable
+        stores fall back to the default plugin list / registered repositories so
+        the catalog is never empty in normal use.
+        """
         available = []
-        with self.app.app_context():
-            from app.models import PluginRepo
-            repos = PluginRepo.query.all()
-            
+        seen_ids = {pid.lower() for pid in self.loaded_plugins}
+
+        catalog = self.get_store_catalog()
+        for entry in catalog["plugins"]:
+            pid = entry.get("id", "")
+            if not pid or pid.lower() in seen_ids:
+                continue
+            repo_url = entry.get("repository")
+            manifest = None
+            if repo_url:
+                manifest = self.fetch_remote_manifest(repo_url)
+            if not manifest:
+                manifest = dict(entry)
+                manifest.setdefault("volumes", [])
+                manifest.setdefault("version", "1.0.0")
+                manifest.setdefault("author", "")
+            manifest.setdefault("_repo_id", None)
+            manifest["_repo_url"] = repo_url or entry.get("url", "")
+            manifest["_store"] = True
+            available.append(manifest)
+
+        # Backward-compat fallback: if the store returned no catalog (e.g. a
+        # legacy/empty store), fall back to registered PluginRepo rows and the
+        # default plugin list so nothing disappears.
+        if not catalog["plugins"] or (available and not any(p.get("_store") for p in available)):
+            available = []
+            seen_ids = {pid.lower() for pid in self.loaded_plugins}
+            try:
+                with self.app.app_context():
+                    from app.models import PluginRepo
+                    repos = PluginRepo.query.all()
+            except Exception:
+                repos = []
             for repo in repos:
                 manifest = self.fetch_remote_manifest(repo.repo_url)
                 if manifest:
-                    plugin_id = manifest.get("id")
-                    if plugin_id not in self.loaded_plugins:
+                    pid = manifest.get("id")
+                    if pid and pid.lower() not in seen_ids:
                         manifest["_repo_id"] = repo.id
                         manifest["_repo_url"] = repo.repo_url
                         available.append(manifest)
@@ -485,12 +697,12 @@ class PluginManager:
                     repo_slug = short_name.split("/")[-1].lower()
                     default_m = self.get_default_manifest(repo_slug)
                     if default_m:
-                        plugin_id = default_m.get("id", repo_slug)
-                        if plugin_id not in self.loaded_plugins:
+                        pid = default_m.get("id", repo_slug)
+                        if pid.lower() not in seen_ids:
                             default_m["_repo_id"] = repo.id
                             default_m["_repo_url"] = repo.repo_url
                             available.append(default_m)
-                    elif not any(repo_slug in pid for pid in self.loaded_plugins):
+                    elif not any(repo_slug in pid2 for pid2 in self.loaded_plugins):
                         available.append({
                             "id": repo_slug,
                             "name": repo.name or repo_slug,
