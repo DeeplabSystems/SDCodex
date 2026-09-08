@@ -36,7 +36,7 @@ services:
       - ./plugins:/app/plugins
       - ./entrypoint.sh:/entrypoint.sh:ro
       # --- PLUGIN CONFIG MOUNTS
-      - ./docker-compose.yml:/app/docker-compose.yml
+      - ./docker-compose.overide.yml:/app/docker-compose.overide.yml
       - ./.env:/app/.env
       - ./requirements.txt:/app/requirements.txt
     healthcheck:
