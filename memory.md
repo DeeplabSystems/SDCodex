@@ -111,3 +111,48 @@ messages and doc alerts accordingly.
   && up -d --build`) after config changes.
 - No password-based `sudo`; use privileged helper containers for root-owned
   file cleanup under `plugins/`.
+
+## Plugin Store (JSON-driven catalog)
+
+The "GitHub Plugin Repositories" settings section became **"GitHub Store
+Repositories"** pointing at the **SDCodex-Plugin-Store** repo
+(`https://github.com/DeeplabSystems/SDCodex-Plugin-Store`). Publishing a new
+plugin now only requires adding an entry to that repo's `plugins.json` — no
+core code changes.
+
+- `DEFAULT_PLUGIN_STORE_URL` / `PLUGIN_STORE_MANIFEST_FILE` (`plugins.json`) in
+  `app/plugin_manager.py`. `PLUGIN_STORE_URL` env var overrides the store URL.
+- `fetch_store_manifest()` reads the store JSON from a local clone first
+  (`/home/naked/workspace/deeplabs/SDCodex-Plugin-Store`, via
+  `LOCAL_PLUGIN_STORE_DIR` or the sibling/workspace heuristics), then from
+  GitHub raw / API (auth with `GITHUB_TOKEN` for private stores).
+- `get_store_catalog()` returns `{store, plugins}`; falls back to
+  `DEFAULT_PLUGIN_REPOSITORIES` if the store can't be reached (resilience).
+- `get_available_uninstalled_plugins()` is now driven by the store JSON (each
+  entry's full `plugin.json` is fetched for the install manifest); registered
+  `PluginRepo` rows are a legacy fallback only.
+- `check_updates()` returns `{update_cache, new_plugins, store}`. It compares
+  installed versions against each plugin's remote manifest and lists store
+  entries not installed as `new_plugins`. `self.store_info` caches the catalog,
+  `new_plugins`, and `last_checked` for the Settings UI.
+- The Settings POST action `check_plugin_updates` flashes a summary (updates
+  available / new plugins / store unreachable).
+- The old `add_plugin_repo` / `remove_plugin_repo` actions still exist and are
+  exposed under an "advanced" `<details>` in the store section, and the settings
+  GET renders store status lightly (no per-plugin version lookups on GET).
+
+### plugins.json schema (`SDCodex-Plugin-Store/plugins.json`)
+```json
+{
+  "name": "SDCodex Plugin Store",
+  "description": "...",
+  "version": "1.0.0",
+  "plugins": [
+    { "id": "...", "name": "...", "description": "...",
+      "repository": "https://github.com/Owner/Repo", "version": "1.0.0" }
+  ]
+}
+```
+Each `plugins[]` entry maps a plugin id to its GitHub repo. On install and for
+version checks, the per-repo `plugin.json` is still fetched for the full
+manifest (volumes, nav, entrypoint).
