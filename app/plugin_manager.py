@@ -25,8 +25,13 @@ def parse_version(v_str):
 DEFAULT_PLUGIN_REPOSITORIES = [
     {
         "url": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
-        "name": "ComfyUI Caption & Gallery",
-        "description": "Image gallery, auto-captioning with LLMs/JoyCaption, and ComfyUI integration nodes."
+        "name": "ComfyUI Captioning",
+        "description": "Auto-captioning with LLMs/JoyCaption and ComfyUI integration nodes. The gallery now lives in the separate SDCodex Gallery plugin.",
+    },
+    {
+        "url": "https://github.com/DeeplabSystems/SDCodex-Gallery",
+        "name": "SDCodex Gallery",
+        "description": "Disk-backed media gallery that reads captions, SD prompts and ComfyUI workflows directly from disk and image metadata."
     },
     {
         "url": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
@@ -49,28 +54,41 @@ PLUGIN_STORE_MANIFEST_FILE = "plugins.json"
 DEFAULT_PLUGIN_MANIFESTS = {
     "comfy-caption": {
         "id": "comfy-caption",
-        "name": "ComfyUI Caption & Gallery",
-        "version": "1.1.0",
-        "description": "Integrated image gallery, auto-captioning with LLMs/JoyCaption, and ComfyUI custom workflow nodes.",
+        "name": "ComfyUI Captioning",
+        "version": "2.0.0",
+        "description": "Auto-captioning with LLMs/JoyCaption and ComfyUI custom workflow nodes. The gallery now lives in the separate SDCodex Gallery plugin, which reads directly from disk (no database, no save-to-gallery).",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
         "entrypoint": "plugin:init_plugin",
         "nav_items": [
-            {"label": "Captioning", "url": "/captioning", "icon": "fas fa-tags"},
-            {"label": "Gallery", "url": "/gallery", "icon": "fas fa-images"}
+            {"label": "Captioning", "url": "/captioning", "icon": "fas fa-tags"}
         ],
         "volumes": [
-            {
-                "env_var": "GALLERY",
-                "host_path": ".gallery",
-                "container_path": "/app/app/static/saved_gallery",
-                "description": "Directory for saved gallery images and thumbnails"
-            },
             {
                 "env_var": "COMFYUI_CUSTOM_NODES",
                 "host_path": "./comfyui/custom_nodes",
                 "container_path": "/data/custom_nodes",
                 "description": "ComfyUI custom-addons folder (where comfyui-sdcodex nodes will be installed)"
+            }
+        ]
+    },
+    "gallery": {
+        "id": "gallery",
+        "name": "SDCodex Gallery",
+        "version": "2.0.0",
+        "description": "Disk-backed media gallery that scans folders directly, reads captions/.txt sidecars, SD prompts and ComfyUI workflows from image metadata, and downloads workflows as JSON. No database required.",
+        "author": "DeeplabSystems",
+        "repository": "https://github.com/DeeplabSystems/SDCodex-Gallery",
+        "entrypoint": "plugin:init_plugin",
+        "nav_items": [
+            {"label": "Gallery", "url": "/gallery2", "icon": "fas fa-images"}
+        ],
+        "volumes": [
+            {
+                "env_var": "GALLERY_ROOT",
+                "host_path": "./downloads",
+                "container_path": "/data/downloads",
+                "description": "Root folder that the gallery browses on disk (media, captions and metadata are read directly from here)."
             }
         ]
     },
