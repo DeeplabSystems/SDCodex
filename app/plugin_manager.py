@@ -36,7 +36,7 @@ DEFAULT_PLUGIN_REPOSITORIES = [
     {
         "url": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
         "name": "GalleryDL & Tasks",
-        "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, and OAuth."
+        "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth, and a persistent activity log."
     },
     {
         "url": "https://github.com/DeeplabSystems/SDCodex-RemBG",
@@ -95,8 +95,8 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery-dl": {
         "id": "gallery-dl",
         "name": "GalleryDL & Tasks",
-        "version": "1.1.0",
-        "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, and OAuth configuration.",
+        "version": "1.2.0",
+        "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth configuration, and a persistent activity log.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
         "entrypoint": "plugin:init_plugin",
@@ -108,7 +108,9 @@ DEFAULT_PLUGIN_MANIFESTS = {
                     {"label": "Tasks", "url": "/tasks", "icon": "fas fa-tasks"},
                     {"label": "Quick Download", "url": "/one-time", "icon": "fas fa-download"},
                     {"label": "Kiosks", "url": "/kiosks", "icon": "fas fa-desktop"},
-                    {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"}
+                    {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"},
+                    {"label": "Logs", "url": "/logs", "icon": "fas fa-list-alt"},
+                    {"label": "Config", "url": "/config", "icon": "fas fa-sliders-h"}
                 ]
             }
         ],

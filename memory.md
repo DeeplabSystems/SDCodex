@@ -3,30 +3,38 @@
 Context notes for ongoing modular-plugin work. Added during the plugin-settings
 / plugin-config / plugin-mounts task.
 
-## Open investigation: "printed activity entries" at the top of the Settings page
+## Open investigation: "printed activity entries" at the top of the Settings page — RESOLVED
 
 The user asked to "move the printed activity entries that are appearing at the
 top of the settings page to its own dedicated page in settings call **Logs**".
 
-Investigation (so far) found NO such feature in the current codebase or runtime:
+**Resolution (confirm).** Those entries are the GalleryDL plugin's transient
+**flash messages** set in `SDCodex-GalleryDL/artillery.py` (~67 `flash()` sites:
+task created / deleted / duplicated / started / stopped / errors, and one-time
+downloads). They only surfaced at the top of Settings because `settings.html`
+is the *only* template that calls `get_flashed_messages` (`app/templates/
+settings.html:14`); every other page (including the gallery-dl tasks page)
+never renders them, so they sat in the session and piled up on the next
+Settings visit.
 
-- No "activity"/"recent activity"/"log"-style header rendered on the live
-  `/settings` page (checked the running container's rendered HTML).
-- No activity/feed template exists in the core app templates
-  (`app/templates/settings.html`, `base.html`) — Settings currently has three
-  tabs: Download Directories & API, Plugins & Extensions, Library Management.
-- No "activity" concept found in the current gallery-dl plugin (fresh public
-  repo `/tmp/gdl` and the installed copy at `plugins/gallery-dl`): only
-  `_recent_downloads_from_log()` which feeds the *tasks* and *quick-download*
-  pages, not Settings.
-- The old monolithic app at `/home/naked/dev/SDCodex` also has no activity feed
-  on its Settings page.
+**Implementation (built).** Added a **persistent activity log** so these
+events survive redirects and are reviewable on a dedicated Logs page:
+- `artillery.py` `_activity(level, slug, message)` appends timestamped events
+  to `<CONFIG_DIR>/activity.log` (thread-safe, capped to
+  `ACTIVITY_LOG_MAX_LINES`=2000). Hooked into every task-action flash site
+  (create/update, duplicate, delete, run, pause, stop, clear_logs,
+  delete_archive, delete_cookies), the background runner lifecycle
+  (start / finished / stopped / timed-out / non-zero / crash), and one-time
+  downloads (start / finish / error).
+- New routes: `GET /logs` (page), `GET /logs/data` (JSON, newest-first),
+  `GET /logs/download`, `POST /logs/clear`. Template `templates/logs.html`.
+- Nav: GalleryDL dropdown now has a **Logs** item (`/logs`). Version bumped
+  1.1.0 -> 1.2.0 (plugin.json + store plugins.json +
+  `DEFAULT_PLUGIN_MANIFESTS` `gallery-dl`), per the versioning convention.
+- `CONFIG_DIR` is the config volume, which is where `activity.log` lives.
 
-Conclusion: the "activity entries" the user saw were not in the committed code —
-they are either from an earlier/provisional state, a screenshot on their side,
-or a feature they want built. When it shows up again, capture the exact page URL
-and surrounding HTML before acting. A new "Logs" settings page is the desired
-destination; the source feed was never located.
+Note: the per-task `logs.txt` progress streams already exist under
+`/tasks/<slug>/logs` (SSE) — the new Logs page is the *audit* layer on top.
 
 ## Per-plugin dedicated settings pages (design)
 
