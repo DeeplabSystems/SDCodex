@@ -1018,6 +1018,14 @@ textarea::placeholder {
   color: white;
 }
 
+/* Grey (secondary) badges/filters: keep their icons & clear-x legible on theme
+   grey instead of inheriting Bootstrap's white text utility. */
+.badge.bg-secondary i,
+.badge.bg-secondary a,
+.badge.bg-secondary .fa-times {
+  color: var(--text) !important;
+}
+
 .badge.bg-info {
   background-color: var(--info) !important;
 }

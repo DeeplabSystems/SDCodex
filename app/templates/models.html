@@ -141,7 +141,7 @@
         <div class="active-filters mb-3">
             <div class="d-flex flex-wrap gap-2">
                 {% if current_filters.type %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Type: {{ current_filters.type }}
                     <a href="{{ url_for('main.models', base_model=current_filters.base_model, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -151,7 +151,7 @@
                 {% endif %}
 
                 {% if current_filters.base_model %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Base Model: {{ current_filters.base_model }}
                     <a href="{{ url_for('main.models', type=current_filters.type, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -161,7 +161,7 @@
                 {% endif %}
 
                 {% if current_filters.period != 'AllTime' %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Period: {{ current_filters.period }}
                     <a href="{{ url_for('main.models', type=current_filters.type, base_model=current_filters.base_model, sort=current_filters.sort, nsfw=current_filters.nsfw) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -181,7 +181,7 @@
                 {% endif %}
 
                 {% for tag in current_filters.tags %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Tag: {{ tag }}
                     <a href="{{ url_for('main.models', type=current_filters.type, base_model=current_filters.base_model, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw, checkpoint_type=current_filters.checkpoint_type, format=current_filters.format, status=current_filters.status, tags=current_filters.tags|reject('equalto', tag)|list) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -191,7 +191,7 @@
                 {% endfor %}
 
                 {% if current_filters.checkpoint_type and current_filters.checkpoint_type != 'All' %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Checkpoint Type: {{ current_filters.checkpoint_type }}
                     <a href="{{ url_for('main.models', type=current_filters.type, base_model=current_filters.base_model, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw, format=current_filters.format, status=current_filters.status, tags=current_filters.tags) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -201,7 +201,7 @@
                 {% endif %}
 
                 {% if current_filters.format %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Format: {{ current_filters.format }}
                     <a href="{{ url_for('main.models', type=current_filters.type, base_model=current_filters.base_model, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw, checkpoint_type=current_filters.checkpoint_type, status=current_filters.status, tags=current_filters.tags) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -211,7 +211,7 @@
                 {% endif %}
 
                 {% if current_filters.status %}
-                <span class="badge bg-primary d-flex align-items-center">
+                <span class="badge bg-secondary d-flex align-items-center">
                     Status: {{ current_filters.status }}
                     <a href="{{ url_for('main.models', type=current_filters.type, base_model=current_filters.base_model, sort=current_filters.sort, period=current_filters.period, nsfw=current_filters.nsfw, checkpoint_type=current_filters.checkpoint_type, format=current_filters.format, tags=current_filters.tags) }}"
                         class="ms-2 text-white text-decoration-none">
@@ -263,7 +263,7 @@
                         <div class="model-info mb-2">
                             <span class="badge bg-secondary me-1">{{ model.type }}</span>
                             {% if versions and versions[0].get('baseModel') %}
-                            <span class="badge bg-info">{{ versions[0]['baseModel'] }}</span>
+                            <span class="badge bg-secondary">{{ versions[0]['baseModel'] }}</span>
                             {% endif %}
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
@@ -279,13 +279,13 @@
                                 By Unknown
                                 {% endif %}
                             </small>
-                            <span class="badge bg-primary"><i class="fas fa-download"></i> {{ model.stats.downloadCount
+                            <span class="badge bg-secondary"><i class="fas fa-download"></i> {{ model.stats.downloadCount
                                 if model.stats else 0 }}</span>
                         </div>
                     </div>
                     <div class="card-footer">
                         <a href="{{ url_for('main.model_detail', model_id=model.id) }}"
-                            class="btn btn-sm btn-outline-primary w-100">View Details</a>
+                            class="btn btn-sm btn-outline-secondary w-100">View Details</a>
                     </div>
                 </div>
             </div>
