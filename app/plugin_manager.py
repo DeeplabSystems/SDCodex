@@ -55,7 +55,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "comfy-caption": {
         "id": "comfy-caption",
         "name": "ComfyUI Captioning",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "description": "Auto-captioning with LLMs/JoyCaption and ComfyUI custom workflow nodes. The gallery now lives in the separate SDCodex Gallery plugin, which reads directly from disk (no database, no save-to-gallery).",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
@@ -75,7 +75,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery": {
         "id": "gallery",
         "name": "SDCodex Gallery",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "description": "Disk-backed media gallery built into the SD Codex header. Scans folders directly, reads captions/.txt sidecars, SD prompts and ComfyUI workflows from image metadata, and downloads workflows as JSON. No database required.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-Gallery",
