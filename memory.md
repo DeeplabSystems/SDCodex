@@ -220,3 +220,24 @@ changes (gallery-dl config editor + Settings tab, rembg HFH mount fix,
 comfy-caption gallery/custom-nodes updates). Verified: card shows v1.1.0,
 "Check for Updates" reports up to date, and a simulated newer remote version
 correctly flags `has_update=True`.
+
+## Deployment: develab workspace vs. the running container
+
+The **development** git checkouts live under
+`/home/naked/workspace/deeplabs/<repo>`. The **running** app container
+(`sdcodex`, image `nakedzombie/sdcodex:latest`) bind-mounts its code from a
+**separate** checkout:
+`/home/naked/ai/SDCodex` (its `plugins:/app/plugins`, `app:/app/app`,
+`run.py`, etc.). So after committing/pushing from develab, deploying to the
+running instance is:
+
+1. `git -C /home/naked/ai/SDCodex pull origin main`  (core code + manifests)
+2. For **plugin code** (installed copies live under `plugins/<id>/`, which are
+   *not* git-tracked): copy the updated plugin source from the develab
+   `SDCodex-<Plugin>` repo into `/home/naked/ai/SDCodex/plugins/<id>/`
+   (mirrors the plugin manager's install-copy behavior)
+3. Reload gunicorn so plugins are re-registered:
+   `pkill -HUP -f "gunicorn --bind 0.0.0.0:5001"` (master reloads the worker,
+   which re-runs `plugin_manager.load_plugins`); verify with
+   `curl -s localhost:5001/gallery2/` (title "Gallery - SD Codex", no
+   "FolderFrame").
