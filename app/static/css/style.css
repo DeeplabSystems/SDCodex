@@ -8,6 +8,7 @@
   --text: #1d1d1f;
   --text-secondary: #86868b;
   --border: #d2d2d7;
+  --nav-hover: rgba(128, 128, 135, 0.20);
   --success: #34c759;
   --warning: #ff9f0a;
   --input-bg: #ffffff;
@@ -54,6 +55,7 @@
   --text: #f5f5f7;
   --text-secondary: #a1a1a6;
   --border: #3a3a3c;
+  --nav-hover: rgba(255, 255, 255, 0.18);
   --input-bg: #2c2c2e;
   --primary: #009be3;
   --primary-hover: #0071e3;
@@ -134,8 +136,19 @@
 
 [data-theme='dark'] .dropdown-item:hover,
 [data-theme='dark'] .dropdown-item:focus {
-  background-color: rgba(255, 255, 255, 0.1) !important;
+  background-color: rgba(255, 255, 255, 0.18) !important;
   color: #ffffff !important;
+}
+
+/* Bright grey hover for dropdown (rembg / GalleryDL) submenu items. */
+.navbar .dropdown-menu .dropdown-item {
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+.navbar .dropdown-menu .dropdown-item:hover,
+.navbar .dropdown-menu .dropdown-item:focus {
+  background-color: var(--nav-hover);
+  color: var(--text);
 }
 
 [data-theme='dark'] .nav-tabs {
@@ -385,19 +398,22 @@ a:hover {
 }
 
 .navbar-brand:hover {
-  color: var(--primary);
+  color: var(--text);
 }
 
 .navbar .nav-link {
   font-weight: 600;
   padding: 0.5rem 1rem;
   position: relative;
+  border-radius: 9px;
   transition: var(--transition);
   color: var(--text-secondary);
 }
 
-.navbar .nav-link:hover {
+.navbar .nav-link:hover,
+.navbar .nav-link:focus-visible {
   color: var(--text);
+  background-color: var(--nav-hover, rgba(128, 128, 135, 0.18));
 }
 
 .navbar .nav-link:after {
