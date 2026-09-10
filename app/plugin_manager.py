@@ -75,7 +75,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery": {
         "id": "gallery",
         "name": "SDCodex Gallery",
-        "version": "2.5.8",
+        "version": "2.5.9",
         "description": "Disk-backed media gallery built into the SD Codex header. Scans folders directly, reads captions/.txt sidecars, SD prompts and ComfyUI workflows from image metadata, and downloads workflows as JSON. No database required.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-Gallery",
