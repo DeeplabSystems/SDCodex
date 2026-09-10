@@ -416,24 +416,6 @@ a:hover {
   background-color: var(--nav-hover, rgba(128, 128, 135, 0.18));
 }
 
-.navbar .nav-link:after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 0;
-  height: 2px;
-  background: var(--border);
-  transition: all 0.3s;
-  opacity: 0;
-  transform: translateX(-50%);
-}
-
-.navbar .nav-link:hover:after {
-  width: 80%;
-  opacity: 1;
-}
-
 .nav-icon {
   color: var(--text-secondary);
   transition: var(--transition);
