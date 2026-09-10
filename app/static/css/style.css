@@ -407,7 +407,7 @@ a:hover {
   left: 50%;
   width: 0;
   height: 2px;
-  background: var(--primary);
+  background: var(--border);
   transition: all 0.3s;
   opacity: 0;
   transform: translateX(-50%);
