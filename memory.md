@@ -241,3 +241,66 @@ running instance is:
    which re-runs `plugin_manager.load_plugins`); verify with
    `curl -s localhost:5001/gallery2/` (title "Gallery - SD Codex", no
    "FolderFrame").
+
+## Gallery viewer + Captioning (current gallery layout / gotchas)
+
+Final viewer look (SDCodex-Gallery, plugin `gallery`, blueprint `gallery2`):
+- **Floating hover panel** like the captioning modal: media pane left, details
+  pane right, over a full-viewport dimmed+blurred backdrop
+  (`#viewer-backdrop`: `position:fixed; inset:0; background:rgba(0,0,0,.85);
+  backdrop-filter:blur(5px); z-index:1900`; `#viewer-modal` `z-index:2000`,
+  `position:fixed; top:96px` to clear the ~81px sticky navbar).
+- **Transparent media area**: the grid is *kept rendered* (NOT `display:none`)
+  behind the blurred backdrop so the blur has real content to blur
+  (`app.js` viewer-open no longer hides `#grid-view-container`). Media
+  viewport + modal shell are transparent; only the details card
+  (`#info-panel`, `--card-bg`, rounded) is solid.
+- **Details panel is permanent** — not closable. `btn-info` and `btn-info-close`
+  were removed from the template; `setInfoPanel()` forces open.
+- **Caption this Image** button shows in the details panel only when the
+  ComfyCaption plugin is installed (`templates/gallery.html` gates on
+  `installed_plugins`).
+- **Header hover = solid grey pill** (default + hover), no underline. All icons
+  grey, not blue (View Details/download/badges use `btn-outline-secondary` /
+  `bg-secondary`).
+
+### Captioning from the gallery — DO NOT FIX AGAIN
+Three distinct root causes were hit; all fixed and working (gallery `2.5.9`,
+comfy-caption `2.1.2`):
+1. **Container→host LM Studio networking**: the caption plugin runs inside the
+   `sdcodex` container, so `http://localhost:1234/v1` points at the container,
+   not the host. `api_gallery.py` `reachable_lm_studio_url()` rewrites
+   `localhost`/`127.0.0.1` URLs to the container default-gateway IP when inside
+   Docker (`_in_docker()` = `/.dockerenv` exists or `REMBG_OUTPUT` starts with
+   `/data`). Applies to `check-connection`, `caption-single`, batch.
+2. **LM Studio URL resets**: captioning page hardcoded
+   `http://localhost:1234/v1` and never saved it. Now persists
+   `captionLmStudioUrl` to localStorage on change/blur and restores on load
+   (`templates/captioning.html` `window.onload`) — shared with the gallery.
+3. **HTTP 400 "server could not understand" (Flask BadRequest)**: the gallery's
+   `captionCurrentImage` called `resilience.request('/api/caption-single',
+   { body: JSON.stringify(...), ..., body: 'json' })` — **two `body` keys**, so
+   the later `body:'json'` won, the JSON payload was dropped, and the request
+   went out with an empty body → Flask 400. **Fix: use raw `fetch`** for the two
+   caption POSTs (`check-connection` + `caption-single`), like the captioning
+   page does. resilience.request cannot send a JSON body and parse JSON
+   response in one call (its `body` key is the response mode) — a footgun.
+
+### Other recent gallery fixes
+- **Download Workflow button did nothing**: its listeners were nested inside
+  `if (btnInfo)`, but `btnInfo` was removed (permanent panel) → never wired.
+  Moved to standalone `btnDownloadWorkflow?.addEventListener(...)` /
+  `btnInfoDownloadWorkflow?.addEventListener(...)`.
+- **Panel under the header**: navbar is ~81.4px (`padding:1rem` + 42px brand).
+  Viewer panel `top:96px` clears it.
+- **Model cold-start**: first caption after LM Studio idles takes ~30–60 s while
+  the model reloads — normal (raw `fetch` has no timeout; do NOT add one).
+- `resilience.js` `request()` includes the server's JSON `error` in thrown
+  "HTTP N" messages so callers can show the real reason.
+
+### Deployment (from memory#deployment): after editing develab repos, sync plugin
+source into BOTH `/home/naked/workspace/deeplabs/SDCodex/plugins/<id>/` and
+`/home/naked/ai/SDCodex/plugins/<id>/`, clear plugin `__pycache__`,
+`git checkout -- app/static/css/style.css` (if pull aborts on local changes)
+before pulling core into `ai/SDCodex`, then HUP the current gunicorn master
+(resolve PID via `ps` — it churns on every HUP).
