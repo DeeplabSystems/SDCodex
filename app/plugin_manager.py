@@ -95,7 +95,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery-dl": {
         "id": "gallery-dl",
         "name": "GalleryDL & Tasks",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth configuration, and a persistent activity log.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
@@ -114,11 +114,11 @@ DEFAULT_PLUGIN_MANIFESTS = {
                 ]
             }
         ],
-        "settings": {
-            "label": "Config & Scheduler",
-            "url": "/config",
-            "icon": "fas fa-sliders-h"
-        },
+        "settings": [
+            {"label": "Config", "url": "/config?tab=config", "icon": "fas fa-cog"},
+            {"label": "Task Scheduler", "url": "/config?tab=scheduler", "icon": "fas fa-calendar-alt"},
+            {"label": "Backup & Restore", "url": "/config?tab=backup", "icon": "fas fa-history"}
+        ],
         "volumes": [
             {
                 "env_var": "TASKS",

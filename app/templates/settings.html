@@ -44,11 +44,17 @@
         </li>
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
+            {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
+            {% if entries is mapping %}{% set entries = [plugin.settings] %}{% endif %}
+            {% for entry in entries %}
+                {% set ptab = 'plugin-' + plugin.id if entries|length == 1 else 'plugin-' + plugin.id + '-' + loop.index ~ '' %}
+                {% set ptab_id = 'tab-' + ptab %}
             <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'plugin-' + plugin.id %}active{% endif %} fw-semibold" id="plugin-{{ plugin.id }}-tab" data-bs-toggle="tab" data-bs-target="#tab-plugin-{{ plugin.id }}" type="button" role="tab">
-                    <i class="{{ plugin.settings.icon or 'fas fa-sliders-h' }} me-2"></i>{{ plugin.settings.label or plugin.name }}
+                <button class="nav-link {% if active_tab == ptab %}active{% endif %} fw-semibold" id="{{ ptab }}-tab" data-bs-toggle="tab" data-bs-target="#{{ ptab_id }}" type="button" role="tab">
+                    <i class="{{ entry.icon or plugin.settings.icon or 'fas fa-sliders-h' }} me-2"></i>{{ entry.label or plugin.settings.label or plugin.name }}
                 </button>
             </li>
+            {% endfor %}
             {% endif %}
         {% endfor %}
     </ul>
@@ -477,9 +483,15 @@
 
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
-            <div class="tab-pane fade {% if active_tab == 'plugin-' + plugin.id %}show active{% endif %}" id="tab-plugin-{{ plugin.id }}" role="tabpanel">
-                <iframe src="{{ plugin.settings.url }}{{ '?' if '?' not in plugin.settings.url else '&' }}embed=1" title="{{ plugin.settings.label or plugin.name }}" style="width:100%; height:85vh; border:0; border-radius:.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.12);" loading="lazy"></iframe>
+            {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
+            {% if entries is mapping %}{% set entries = [plugin.settings] %}{% endif %}
+            {% for entry in entries %}
+            {% set ptab = 'plugin-' + plugin.id if entries|length == 1 else 'plugin-' + plugin.id + '-' + loop.index ~ '' %}
+            {% set ptab_id = 'tab-' + ptab %}
+            <div class="tab-pane fade {% if active_tab == ptab %}show active{% endif %}" id="{{ ptab_id }}" role="tabpanel">
+                <iframe src="{{ entry.url }}{{ '?' if '?' not in entry.url else '&' }}embed=1" title="{{ entry.label or plugin.name }}" style="width:100%; height:85vh; border:0; border-radius:.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.12);" loading="lazy"></iframe>
             </div>
+            {% endfor %}
             {% endif %}
         {% endfor %}
     </div>
