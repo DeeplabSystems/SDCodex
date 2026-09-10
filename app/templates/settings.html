@@ -26,7 +26,7 @@
     <ul class="nav nav-tabs mb-4" id="settingsTab" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'download-dirs' %}active{% endif %} fw-semibold" id="download-dirs-tab" data-bs-toggle="tab" data-bs-target="#download-dirs" type="button" role="tab">
-                <i class="fas fa-folder me-2"></i>Download Directories & API
+                <i class="fas fa-folder me-2"></i>Model Paths & Civitai API
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -39,7 +39,7 @@
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'library' %}active{% endif %} fw-semibold" id="library-tab" data-bs-toggle="tab" data-bs-target="#library" type="button" role="tab">
-                <i class="fas fa-sync me-2"></i>Library Management
+                <i class="fas fa-sync me-2"></i>Model Management
             </button>
         </li>
         {% for plugin in installed_plugins %}
@@ -465,7 +465,7 @@
         <div class="tab-pane fade {% if active_tab == 'library' %}show active{% endif %}" id="library" role="tabpanel">
             <div class="card shadow-sm">
                 <div class="card-header bg-body-tertiary">
-                    <h5 class="mb-0"><i class="fas fa-sync text-primary me-2"></i>Library Management</h5>
+                    <h5 class="mb-0"><i class="fas fa-sync text-primary me-2"></i>Model Management</h5>
                 </div>
                 <div class="card-body">
                     <h6 class="card-title fw-bold">Scan Local Library</h6>

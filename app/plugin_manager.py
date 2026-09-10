@@ -95,7 +95,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     "gallery-dl": {
         "id": "gallery-dl",
         "name": "GalleryDL & Tasks",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth configuration, and a persistent activity log.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
@@ -110,14 +110,14 @@ DEFAULT_PLUGIN_MANIFESTS = {
                     {"label": "Kiosks", "url": "/kiosks", "icon": "fas fa-desktop"},
                     {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"},
                     {"label": "Logs", "url": "/logs", "icon": "fas fa-list-alt"},
-                    {"label": "Config", "url": "/config", "icon": "fas fa-sliders-h"}
+                    {"label": "GDL Config", "url": "/config", "icon": "fas fa-sliders-h"}
                 ]
             }
         ],
         "settings": [
-            {"label": "Config", "url": "/config?tab=config", "icon": "fas fa-cog"},
-            {"label": "Task Scheduler", "url": "/config?tab=scheduler", "icon": "fas fa-calendar-alt"},
-            {"label": "Backup & Restore", "url": "/config?tab=backup", "icon": "fas fa-history"}
+            {"label": "GDL Config", "url": "/config?tab=config", "icon": "fas fa-cog"},
+            {"label": "GDL Task Scheduler", "url": "/config?tab=scheduler", "icon": "fas fa-calendar-alt"},
+            {"label": "GDL Task Backup & Restore", "url": "/config?tab=backup", "icon": "fas fa-history"}
         ],
         "volumes": [
             {
