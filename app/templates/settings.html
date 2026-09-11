@@ -530,13 +530,20 @@
 
                     <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end">
                         <input type="hidden" name="action" value="system_cron:apply">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <label class="form-label">Repo path (install dir)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="repo_path"
+                                   id="sys-cron-path" value="{{ sys_cron.repo_path or '' }}"
+                                   placeholder="e.g. /home/you/SDCodex">
+                            <div class="form-text">Used by the cron job to <code>cd</code> into; leave blank to auto-detect.</div>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label">Check every (minutes)</label>
                             <input type="number" class="form-control form-control-sm" name="schedule_minutes"
                                    id="sys-cron-minutes" min="1" max="59" value="{{ sys_cron.schedule_minutes|default(5) }}">
                             <div class="form-text">1–59, e.g. 5.</div>
                         </div>
-                        <div class="col-md-5">
+                        <div class="col-md-3">
                             <label class="form-label">…or raw cron expression (overrides minutes)</label>
                             <input type="text" class="form-control form-control-sm" name="schedule" id="sys-cron-sched"
                                    value="{{ sys_cron.schedule or '' }}" placeholder="e.g. 0 */2 * * *  (every 2 hours)">

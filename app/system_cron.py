@@ -38,7 +38,7 @@ DEFAULT_CRON_FILE = os.environ.get(
 _KEYS = (
     "requested", "requested_at", "requested_by",
     "schedule_minutes", "schedule", "state", "message",
-    "applied_at", "cron_line",
+    "applied_at", "cron_line", "repo_path",
 )
 
 
@@ -102,11 +102,25 @@ def _validate_frequency(schedule_minutes, schedule):
     return True, mins, "", ""
 
 
-def request_apply(schedule_minutes=5, schedule="", user="web", path=None):
-    """Record a request to apply a cron frequency; returns (ok, message, config)."""
+def _validate_path(repo_path):
+    """Validate an optional host install path; returns (valid, normalized, error)."""
+    p = (repo_path or "").strip()
+    if not p:
+        return True, "", ""
+    if not os.path.isabs(p):
+        return False, None, "Repo path must be an absolute path (e.g. /home/you/SDCodex)."
+    return True, p.rstrip("/"), ""
+
+
+def request_apply(schedule_minutes=5, schedule="", repo_path="", user="web", path=None):
+    """Record a request to apply a cron frequency (and optional host install
+    path). Returns (ok, message, config)."""
     ok, mins, raw_sched, err = _validate_frequency(schedule_minutes, schedule)
     if not ok:
         return False, err, _read(path)
+    ok2, rp, err2 = _validate_path(repo_path)
+    if not ok2:
+        return False, err2, _read(path)
     data = _read(path)
     data.update({
         "requested": True,
@@ -114,6 +128,7 @@ def request_apply(schedule_minutes=5, schedule="", user="web", path=None):
         "requested_by": user or "web",
         "schedule_minutes": mins,
         "schedule": raw_sched,
+        "repo_path": rp,
         "state": "pending",
         "message": "Saved — the host cron agent will apply it on its next run.",
         "applied_at": "",
@@ -134,6 +149,7 @@ if __name__ == "__main__":
     p_apply = sub.add_parser("apply", help="Record an apply request.")
     p_apply.add_argument("--minutes", type=int, default=5)
     p_apply.add_argument("--schedule", default="")
+    p_apply.add_argument("--repo-path", default="")
     p_apply.add_argument("--user", default="web")
 
     args = parser.parse_args()
@@ -142,7 +158,7 @@ if __name__ == "__main__":
         click.echo(json.dumps(get_config(path), indent=2))
     elif args.cmd == "apply":
         ok, msg, cfg = request_apply(
-            args.minutes, args.schedule, args.user, path
+            args.minutes, args.schedule, args.repo_path, args.user, path
         )
         if not ok:
             click.echo(f"error: {msg}", err=True)

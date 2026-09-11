@@ -98,17 +98,43 @@ cronexpr(){
   fi
 }
 
+# Echo the install path configured from the UI, or exit non-zero if unset.
+configured_repo_path(){
+  python3 - "$CRON_STATE" <<'PY'
+import json, os, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    d = {}
+p = str(d.get("repo_path") or "").strip()
+if p:
+    print(p)
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
 apply_once(){
   [ -f "$CRON_STATE" ] || return 0
-  local freq
+  local freq cpath
   if ! freq="$(pending_request)"; then
     return 0
   fi
-  log "Cron apply requested (frequency: $freq) — installing."
 
-  if [ ! -x "$REPO_ROOT/$WATCHER_REL" ]; then
-    log "Watcher '$REPO_ROOT/$WATCHER_REL' missing; marking error."
-    write_state "error" "Watcher not found: $REPO_ROOT/$WATCHER_REL" ""
+  # The install/repo path to embed in the cron line. A value set from the web
+  # UI (system_cron.repo_path) wins; otherwise auto-detect from this script's
+  # own location ($REPO_ROOT).
+  local effective_root
+  if cpath="$(configured_repo_path)"; then
+    effective_root="$cpath"
+  else
+    effective_root="$REPO_ROOT"
+  fi
+  log "Cron apply requested (frequency: $freq; repo: $effective_root) — installing."
+
+  if [ ! -x "$effective_root/$WATCHER_REL" ]; then
+    log "Watcher '$effective_root/$WATCHER_REL' missing; marking error."
+    write_state "error" "Watcher not found: $effective_root/$WATCHER_REL" ""
     return 0
   fi
 
@@ -116,7 +142,7 @@ apply_once(){
   sched="$(cronexpr "$freq")"
   # Cron-escape spaces in the repo path (rare); plain paths pass through.
   local esc
-  esc="${REPO_ROOT// /\\ }"
+  esc="${effective_root// /\\ }"
   entry="cd ${esc} && ${esc}/${WATCHER_REL} --once >> ${esc}/${LOG_FILE_REL} 2>&1"
   line="$sched $entry"
 

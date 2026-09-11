@@ -619,6 +619,7 @@ def settings():
             try:
                 minutes_s = (request.form.get("schedule_minutes") or "").strip()
                 schedule = (request.form.get("schedule") or "").strip()
+                repo_path = (request.form.get("repo_path") or "").strip()
                 minutes = 5
                 if minutes_s:
                     try:
@@ -626,7 +627,7 @@ def settings():
                     except (TypeError, ValueError):
                         minutes = 0
                 ok, msg, cfg = system_cron.request_apply(
-                    minutes, schedule,
+                    minutes, schedule, repo_path,
                     request.form.get("requested_by", "web"),
                 )
                 flash(msg, "success" if ok else "error")
