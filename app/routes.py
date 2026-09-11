@@ -34,6 +34,11 @@ def record(state):
 
 @main.route("/")
 def index():
+    # First run: no accounts exist yet -> prompt the visitor to create the
+    # first (admin) account instead of landing on an open home page.
+    if User.query.first() is None:
+        return redirect(url_for("main.auth_login", next="/"))
+
     # Get NSFW filter parameter
     nsfw = request.args.get("nsfw", "false")
 
