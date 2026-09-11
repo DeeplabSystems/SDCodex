@@ -137,42 +137,75 @@ def _git_pull_app(app_root="/app"):
                 ["git", "-C", app_root, "update-index", "--skip-worktree", f],
                 check=False, capture_output=True,
             )
-    # Refresh from the default branch via fetch + fast-forward. Pulling by an
-    # explicit remote ref is robust whether or not a tracking branch is set.
+    # Refresh from the default branch via fetch + fast-forward. The container has
+    # no SSH client/keys, so if origin is an SSH URL we fetch over HTTPS instead
+    # (the SDK repos are public). We never rewrite the persisted remote, so the
+    # operator can keep pushing over SSH from the host.
     branch = subprocess.run(
         ["git", "-C", app_root, "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True, text=True,
     ).stdout.strip()
+    fetch_url = _https_fetch_url(app_root)
     fetched = subprocess.run(
-        ["git", "-C", app_root, "fetch", "origin"],
+        ["git", "-C", app_root, "fetch", fetch_url, branch or "main"],
         capture_output=True, text=True,
     )
     if fetched.returncode != 0:
         raise SelfUpdateError("git fetch failed:\n" + (fetched.stderr or "").strip())
-    ref = f"origin/{branch}" if branch and branch != "HEAD" else "origin/main"
     merged = subprocess.run(
-        ["git", "-C", app_root, "merge", "--ff-only", ref],
+        ["git", "-C", app_root, "merge", "--ff-only", "FETCH_HEAD"],
         capture_output=True, text=True,
     )
     if merged.returncode != 0:
-        # Could be nothing to merge (already up to date) vs a real conflict.
-        try:
-            subprocess.run(["git", "-C", app_root, "rev-parse", "--verify", ref],
-                           check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            raise SelfUpdateError(f"Remote branch '{ref}' not found on origin.")
-        # If we're already at the remote tip that's fine (already current).
+        # Could be "already up to date" vs "no merge base / conflict".
         head = subprocess.run(
             ["git", "-C", app_root, "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True,
         ).stdout.strip()
-        return f"Already up to date at {head or 'HEAD'}"
+        try:
+            subprocess.run(["git", "-C", app_root, "rev-parse", "--verify", "FETCH_HEAD"],
+                           check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            raise SelfUpdateError("Could not fetch the remote branch.")
+        if not head:
+            raise SelfUpdateError("git merge failed:\n" + (merged.stderr or merged.stdout or "").strip())
+        return f"Already up to date at {head}"
     head = subprocess.run(
         ["git", "-C", app_root, "rev-parse", "--short", "HEAD"],
         capture_output=True, text=True,
     )
     sha = (head.stdout or "").strip()
     return f"Pulled {app_root} → {sha or 'HEAD'}"
+
+
+_SSH_URL_RE = re.compile(r"^(?:ssh://)?git@([^:]+):(.+)$")
+
+
+def _https_fetch_url(app_root="/app"):
+    """Return an HTTPS URL for ``origin`` that the container can fetch without
+    SSH keys. Leaves the stored remote untouched. Falls back to 'origin' itself
+    (so HTTPS origins keep working), raising if no URL can be derived."""
+    try:
+        url = subprocess.run(
+            ["git", "-C", app_root, "remote", "get-url", "origin"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    except Exception:
+        url = ""
+    if not url:
+        raise SelfUpdateError("Could not determine the git remote URL (no 'origin').")
+    # git@github.com:DeeplabSystems/SDCodex.git -> https://github.com/DeeplabSystems/SDCodex.git
+    m = _SSH_URL_RE.match(url)
+    if m:
+        return f"https://{m.group(1)}/{m.group(2)}"
+    # git://github.com/... -> https://github.com/...
+    if url.startswith("git://"):
+        return "https://" + url[len("git://"):]
+    # ssh://git@github.com/... -> https://github.com/...
+    if url.startswith("ssh://"):
+        return "https://" + url[url.rfind("@") + 1:]
+    # Already https/http/file — use as-is.
+    return url
 
 
 def _tar_directory(dirpath):
