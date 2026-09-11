@@ -227,7 +227,11 @@ class PluginManager:
         
         # Initialize default repositories in DB if needed
         self._ensure_default_repos()
-        
+
+        # One-time migration: move legacy plugin blocks from the core
+        # requirements.txt into the per-user plugin-requirements.txt.
+        self._migrate_plugin_requirements(root_dir)
+
         # Discover and load installed plugins
         self.load_plugins()
         
@@ -1194,6 +1198,82 @@ class PluginManager:
                 f.write(new_content)
         except Exception as e:
             logger.error(f"Error removing requirements for '{plugin_id}': {e}")
+
+    def _migrate_plugin_requirements(self, root_dir):
+        """One-time migration: move legacy ``# [plugin-id]`` blocks out of the core
+        requirements.txt into the per-user plugin-requirements.txt.
+
+        Before this split, plugin installs appended their deps straight into
+        requirements.txt as ``# [plugin-id]`` sections. Running this at startup
+        relocates those blocks so requirements.txt holds only core packages
+        (which flow through git pulls) and plugin deps live in the frozen
+        plugin-requirements.txt. Idempotent: safe to run on every boot.
+        """
+        core_file = os.path.join(root_dir, "requirements.txt")
+        plug_file = os.path.join(root_dir, "plugin-requirements.txt")
+        try:
+            if not os.path.exists(core_file) or os.path.isdir(core_file):
+                return
+            with open(core_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            logger.warning(f"Migration: could not read requirements.txt: {e}")
+            return
+
+        # Match each '# [plugin-id]' comment plus its dependency lines, up to the
+        # next plugin block or the end of the file.
+        block_pattern = re.compile(
+            r"#\s*\[([^\]]+)\][\s\S]*?(?=\n#\s*\[|\Z)",
+            re.MULTILINE,
+        )
+        blocks = list(block_pattern.finditer(content))
+        if not blocks:
+            return
+
+        # Read existing plugin-requirements.txt package set to avoid duplicates.
+        existing_pkgs = set()
+        plug_content = ""
+        try:
+            if os.path.exists(plug_file):
+                with open(plug_file, "r", encoding="utf-8") as f:
+                    plug_content = f.read()
+                for line in plug_content.splitlines():
+                    ls = line.strip()
+                    if ls and not ls.startswith("#"):
+                        existing_pkgs.add(re.split(r"[=<>~!]", ls)[0].strip().lower())
+        except Exception as e:
+            logger.warning(f"Migration: could not read plugin-requirements.txt: {e}")
+
+        added = []
+        for m in blocks:
+            block = m.group(0).rstrip("\n")
+            # Collect the non-comment package names in this block for dedupe.
+            block_pkgs = {re.split(r"[=<>~!]", l.strip())[0].strip().lower()
+                          for l in block.splitlines()
+                          if l.strip() and not l.strip().startswith("#")}
+            if block_pkgs <= existing_pkgs:
+                continue  # already represented in plugin-requirements.txt
+            added.append(block)
+            existing_pkgs |= block_pkgs
+
+        if not added:
+            return
+
+        # Append the migrated blocks to plugin-requirements.txt.
+        if not plug_content.endswith("\n"):
+            plug_content += "\n"
+        blocks_text = "\n\n".join(added)
+        with open(plug_file, "w", encoding="utf-8") as f:
+            f.write(plug_content.rstrip("\n") + "\n\n" + blocks_text + "\n")
+
+        # Strip the migrated blocks from requirements.txt.
+        new_core = block_pattern.sub("", content)
+        # Clean up stray blank lines left by removal.
+        new_core = "\n".join(ln for ln in new_core.splitlines() if ln.strip() or True)
+        new_core = re.sub(r"\n{3,}", "\n\n", new_core).strip("\n") + "\n"
+        with open(core_file, "w", encoding="utf-8") as f:
+            f.write(new_core)
+        logger.info(f"Migrated {len(added)} plugin requirement block(s) from requirements.txt to plugin-requirements.txt")
 
     def _remove_env_keys_for_plugin(self, plugin_id):
         """Removes the .env keys that this plugin introduced (from its manifest volumes)."""
