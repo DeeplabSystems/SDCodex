@@ -22,6 +22,7 @@ clear message instead of attempting the swap.
 import io
 import os
 import re
+import subprocess
 import tarfile
 import time
 from urllib.parse import quote
@@ -108,6 +109,70 @@ def _build_sdcodex_image(repo_tag, app_root="/app"):
         timeout=1200,
     )
     return repo_tag
+
+
+# Files that plugin installs re-write per-user and that a git pull must never
+# clobber. Marked --skip-worktree so git treats them as frozen (pull leaves the
+# local plugin-modified content alone, and upstream edits to them are ignored).
+_DYNAMIC_APP_FILES = ("docker-compose.override.yml", "requirements.txt", ".env")
+
+
+def _git_pull_app(app_root="/app"):
+    """Update the mounted SDCodex repo with `git pull`, freezing the per-user
+    dynamic files (docker-compose.override.yml, requirements.txt, .env) so the
+    pull never overwrites whatever a plugin install wrote to them. Requires the
+    whole repo to be bind-mounted (./:/app). Returns an updated message."""
+    git_dir = os.path.join(app_root, ".git")
+    if not os.path.isdir(git_dir):
+        raise SelfUpdateError(
+            "The SDCodex repo is not mounted into the container (no "
+            f"{git_dir}). Update docker-compose to bind-mount the whole repo "
+            "(e.g. `- ./:/app`) so self-update can `git pull` internally, "
+            "then try again."
+        )
+    for f in _DYNAMIC_APP_FILES:
+        p = os.path.join(app_root, f)
+        if os.path.exists(p):
+            subprocess.run(
+                ["git", "-C", app_root, "update-index", "--skip-worktree", f],
+                check=False, capture_output=True,
+            )
+    # Refresh from the default branch via fetch + fast-forward. Pulling by an
+    # explicit remote ref is robust whether or not a tracking branch is set.
+    branch = subprocess.run(
+        ["git", "-C", app_root, "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    fetched = subprocess.run(
+        ["git", "-C", app_root, "fetch", "origin"],
+        capture_output=True, text=True,
+    )
+    if fetched.returncode != 0:
+        raise SelfUpdateError("git fetch failed:\n" + (fetched.stderr or "").strip())
+    ref = f"origin/{branch}" if branch and branch != "HEAD" else "origin/main"
+    merged = subprocess.run(
+        ["git", "-C", app_root, "merge", "--ff-only", ref],
+        capture_output=True, text=True,
+    )
+    if merged.returncode != 0:
+        # Could be nothing to merge (already up to date) vs a real conflict.
+        try:
+            subprocess.run(["git", "-C", app_root, "rev-parse", "--verify", ref],
+                           check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            raise SelfUpdateError(f"Remote branch '{ref}' not found on origin.")
+        # If we're already at the remote tip that's fine (already current).
+        head = subprocess.run(
+            ["git", "-C", app_root, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        return f"Already up to date at {head or 'HEAD'}"
+    head = subprocess.run(
+        ["git", "-C", app_root, "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    sha = (head.stdout or "").strip()
+    return f"Pulled {app_root} → {sha or 'HEAD'}"
 
 
 def _tar_directory(dirpath):
@@ -350,6 +415,16 @@ def self_update_generator(new_image):
         deployed = _default_image()
         build_mode = (not new_image) or (new_image == deployed)
         if build_mode:
+            try:
+                yield step("pulling_image", "active", "Updating source via git pull...")
+                yield log("Marking plugin-managed files (override/env/requirements) as frozen → git pull...")
+                pulled = _git_pull_app()
+                yield log(pulled)
+            except SelfUpdateError as exc:
+                raise exc
+            except Exception as exc:  # noqa: BLE001
+                raise SelfUpdateError(f"git pull failed: {exc}") from exc
+
             local_tag = f"sdcodex-selfupdate:sdupdate-{int(time.time())}"
             yield step("pulling_image", "active",
                        f"Building {local_tag} from this container's installed state...")

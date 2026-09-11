@@ -27,25 +27,23 @@ services:
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
     entrypoint: ["/entrypoint.sh"]
     volumes:
-      # Core volume mounts
+      # Whole repo mounted at /app so (a) all source files stay live and
+      # (b) the in-UI self-update can `git pull` internally (must be rw).
+      - ./:/app
+      # Persistent data (kept out of the repo + separate from /app/db)
       - ${DB:-./db}:/data/db
-      - ./app:/app/app
-      - ./run.py:/app/run.py
-      - ./Dockerfile:/app/Dockerfile:ro
+      # External model/download directory (overlays the repo's empty static dir)
       - ${MODELS:-./app/static/downloads}:/app/app/static/downloads
-      - ./plugins:/app/plugins
+      # Keep the entrypoint fresh at the absolute path the image ENTRYPOINT uses
       - ./entrypoint.sh:/entrypoint.sh:ro
       # Host Docker socket — required for the in-UI self-update feature
-      # (Settings > System & Update > Self-update). Read-write access is needed
-      # for the app to pre-create a replacement container and launch the updater
-      # sidecar that swaps this container. If you do NOT want the app to have
-      # host Docker access, delete this line — the Self-update card will then
-      # report "socket: missing/ro" and stay disabled (everything else works).
+      # (Settings > Plugins & Updates > Core App Update > Self-update).
+      # Read-write access is needed for the app to pre-create a replacement
+      # container and launch the updater sidecar that swaps this container.
+      # If you do NOT want the app to have host Docker access, delete this line —
+      # the Self-update card will then report "socket: missing/ro" and stay
+      # disabled (everything else works).
       - /var/run/docker.sock:/var/run/docker.sock
-      # --- PLUGIN CONFIG MOUNTS
-      - ./docker-compose.override.yml:/app/docker-compose.override.yml
-      - ./.env:/app/.env
-      - ./requirements.txt:/app/requirements.txt
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://127.0.0.1:${PORT:-5001}/healthz', timeout=5)\""]
       interval: 30s
