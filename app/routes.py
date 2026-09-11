@@ -1066,6 +1066,7 @@ def oidc_initiate(config_id):
     return redirect(result["url"])
 
 @main.route("/auth/oidc/callback", methods=["GET"])
+@main.route("/api/auth/oidc/callback", methods=["GET"])
 def oidc_callback():
     code = request.args.get("code")
     state = request.args.get("state")
