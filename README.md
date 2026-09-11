@@ -72,89 +72,43 @@ SDCodex features an extensible plugin architecture. The core application provide
      ```
    - The newly mounted volumes and features will immediately be available in SDCodex!
 
-### Updating from the web UI
+### Updating (in-UI self-update)
 
-The **Settings &rarr; System &amp; Update** tab has a **Request Update** button.
-Because the app runs inside Docker (no `docker`/`docker-compose` inside the
-container, and `docker compose down`/`up -d --build` are host operations), the
-button only *records* an update request in a shared state file
-(`<repo>/db/system_update.json`, bind-mounted as `/data/db`). A small
-**host-side** watcher applies it:
-
-```bash
-# continuous (in a terminal) — or run the same binary from cron:
-scripts/ui-update-watcher.sh --watch
-
-# cron style: check-and-apply once, e.g. every 5 minutes
-# */5 * * * * /path/to/SDCodex/scripts/ui-update-watcher.sh --once
-```
-
-The watcher runs `update.sh` (`git pull` + `docker compose up -d --build`) on
-the host whenever a request is pending, and records the outcome (and git
-commit) back into the state file so the web UI shows status/progress.
-
-### Self-update directly in the UI (optional Docker socket)
-
-If you mount the host Docker socket **read-write** into the `sdcodex`
-container, the **Settings &rarr; System &amp; Update** tab gains a
-**Self-update in the UI** card that can replace this very container entirely
-from the browser — no host watcher/cron/terminal needed:
-
-```yaml
-# docker-compose.yml → services.sdcodex.volumes (add this line):
-- /var/run/docker.sock:/var/run/docker.sock
-```
-
-With the socket mounted, the UI (via the Docker Engine API) can pull/build the
-new image, `docker create` a temporary replacement container from your
-current container's configuration, and launch a tiny **updater sidecar** image
-that swaps them:
+Updating is done from the **Settings &rarr; System &amp; Update &rarr; Self-update**
+card. The app talks to the Docker Engine over the mounted host socket, pulls the
+new image, `docker create`s a temporary replacement container from your current
+container's configuration, and launches a tiny **updater sidecar** image that
+swaps them:
 
 ```
 stop old → rm old → rename new → reconnect networks → start new → verify
 ```
 
-Because the sidecar is a separate container with its own Docker access,
-stopping the old container never interrupts the swap — the whole flow runs and
-reports live progress in the browser.
+Because the sidecar is a separate container with its own Docker access, stopping
+the old container never interrupts the swap — the whole flow runs and reports
+live progress in the browser. No host-side watcher, cron, or terminal is needed.
+
+This requires the host Docker socket mounted **read-write** into the container
+(it **is** present in the default `docker-compose.yml`):
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
 
 The self-update card shows a capability badge (`socket: rw` / `socket: ro` /
 `socket: missing`) and the image tag it will pull (default
 `nakedzombie/sdcodex:latest`, overridable). If the socket is absent or mounted
 read-only the swap is disabled with a clear explanation.
 
-> **Security note:** mounting `docker.sock` grants code running in the container
-> the ability to manage containers/volumes on the host. It is **not required**
-> for normal use — only enable it if you want in-UI self-update, and keep it
-> read-only unless you are actively updating. The updater sidecar image can be
-> pulled (override `SDCODEX_UPDATER_IMAGE`) or built automatically from
+> **Security note:** the Docker socket grants code running in the container the
+> ability to manage containers/volumes on the host. It is only needed for
+> in-UI self-update — if you don't want host Docker access, remove that one
+> line from `docker-compose.yml` and the self-update card will report
+> `socket: missing`. Plugin updates (Resources, volume mounts) still apply via
+> the Plugin Manager's per-plugin update button. The updater sidecar image can
+> be pulled (override `SDCODEX_UPDATER_IMAGE`) or built automatically from
 > `updater/` when the repo is bind-mounted.
-
-### Easy cron setup (`scripts/setup_cron.sh`)
-
-Interactive helper that sets up the cron job for you:
-
-```bash
-scripts/setup_cron.sh
-```
-
-It prompts for your SDCodex install directory (the `scripts/ui-update-watcher.sh`
-path is appended automatically), asks how often to check for updates (minutes,
-or a raw cron expression), and installs an idempotent cron entry. Run it as the
-user whose Docker + repo access matches how you run `update.sh`.
-
-### Cron setup from the web UI ("System & Update" tab)
-
-The **Settings &rarr; System &amp; Update** tab also has a **Cron setup** card:
-choose a frequency (minutes, or a raw cron expression) and click **Save &amp;
-Apply on Host**. The web app runs inside the container and can't edit your host
-crontab, so a small **host-side agent** applies it. Start it once (it only needs
-the frequency from the UI — it auto-detects the install dir):
-
-```bash
-scripts/ui-cron-agent.sh --watch     # apply requested frequencies automatically
-scripts/ui-cron-agent.sh --once      # check-and-apply once (cron-friendly)
-```
 
 ## 🔐 Users & SSO (local auth + OpenID Connect)
 

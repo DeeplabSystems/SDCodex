@@ -15,8 +15,6 @@ from app import db
 from app.models import Setting, Download, PluginRepo
 from app.download_manager import download_manager
 from app.plugin_manager import plugin_manager
-from app import system_updates
-from app import system_cron
 from app import docker_api
 from app import docker_selfupdate
 from app import auth
@@ -618,45 +616,6 @@ def settings():
             flash(f"Plugin '{plugin_id}' has been {status_str}.", "info")
             active_tab = "plugins"
 
-        elif action == "system_update:request":
-            # Record an update request; the host-side watcher picks it up and
-            # runs update.sh (git pull + compose rebuild). Safe to call while
-            # the container is busy — apply happens on the host, on the next
-            # watcher/cron tick.
-            try:
-                status = system_updates.request_update(request.form.get("requested_by", "web"))
-                if status.get("state") == "running":
-                    flash("An update is already being applied on the host.", "info")
-                else:
-                    flash("Update requested. It will be applied by the host updater on its next run.", "success")
-            except Exception as e:
-                current_app.logger.exception("Failed to record system update request")
-                flash(f"Update request failed: {e}", "error")
-            active_tab = "system-update"
-
-        elif action == "system_cron:apply":
-            # Record a cron frequency request; the host-side cron agent applies
-            # it (the container cannot edit the host crontab).
-            try:
-                minutes_s = (request.form.get("schedule_minutes") or "").strip()
-                schedule = (request.form.get("schedule") or "").strip()
-                repo_path = (request.form.get("repo_path") or "").strip()
-                minutes = 5
-                if minutes_s:
-                    try:
-                        minutes = int(minutes_s)
-                    except (TypeError, ValueError):
-                        minutes = 0
-                ok, msg, cfg = system_cron.request_apply(
-                    minutes, schedule, repo_path,
-                    request.form.get("requested_by", "web"),
-                )
-                flash(msg, "success" if ok else "error")
-            except Exception as e:
-                current_app.logger.exception("Failed to record cron apply request")
-                flash(f"Cron apply request failed: {e}", "error")
-            active_tab = "system-update"
-
         elif action == "system_selfupdate:request":
             # Start the in-UI self-update: pull the image, pre-create a
             # replacement container, and hand off to the updater sidecar. Uses
@@ -720,8 +679,6 @@ def settings():
         "last_checked": store_info.get("last_checked", ""),
     }
 
-    sys_update = system_updates.get_status()
-    sys_cron = system_cron.get_config()
     self_update_info = _self_update_info()
 
     # Auth context for the Users & SSO tab (only includes auth details for admins
@@ -746,8 +703,6 @@ def settings():
         github_token=github_token,
         store_info=store_info,
         store_url=plugin_manager.get_store_url(),
-        sys_update=sys_update,
-        sys_cron=sys_cron,
         self_update_info=self_update_info,
         users=users,
         oidc_configs=oidc_configs,
@@ -776,14 +731,6 @@ def scan_library():
     download_manager.add_task(task_type='scan', api_key=api_key)
     flash("Library scan started in background.", "info")
     return redirect(url_for("main.settings", tab="library") + "#library")
-
-@main.route("/settings/update_status", methods=["GET"])
-def update_status():
-    return jsonify(system_updates.get_status())
-
-@main.route("/settings/cron_status", methods=["GET"])
-def cron_status():
-    return jsonify(system_cron.get_config())
 
 def _self_update_info():
     """Capability summary for the self-update card (cheap, no swap)."""

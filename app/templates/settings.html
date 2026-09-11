@@ -188,7 +188,7 @@
                 <i class="fas fa-info-circle fa-2x me-3"></i>
                 <div>
                     <h6 class="alert-heading mb-1 fw-bold">Modular Docker Stack</h6>
-                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, run the update script on your host: <code class="bg-dark text-light px-2 py-1 rounded">./update.sh</code></p>
+                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, recreate the container from the <strong>Settings → System &amp; Update → Self-update</strong> card (which swaps the container via the Docker socket, no host terminal needed).</p>
                 </div>
             </div>
 
@@ -493,45 +493,13 @@
                     <h5 class="mb-0"><i class="fas fa-sync-alt text-primary me-2"></i>System &amp; Update</h5>
                 </div>
                 <div class="card-body">
-                    <p class="text-secondary small">
-                        Pull the latest core code and rebuild/restart the container by running
-                        <code>update.sh</code>. Because the app runs inside Docker, the actual
-                        <code>git pull</code> + <code>docker compose up -d --build</code> runs on the
-                        <strong>host</strong>: this button records an update request, and a small host-side
-                        watcher (<code>scripts/ui-update-watcher.sh</code>, typically on cron) applies it.
-                    </p>
-
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label">Status</label>
-                            <div class="d-flex align-items-center">
-                                <span id="sys-upd-badge" class="badge text-bg-{{ 'success' if (sys_update.state|default('idle')) == 'done' else ('danger' if (sys_update.state|default('idle')) == 'failed' else 'secondary') }} font-monospace" style="font-size:0.9rem;">{{ sys_update.state|default('idle') }}</span>
-                                {% if sys_update.version %}<span class="ms-2 text-secondary small font-monospace">{{ sys_update.version }}</span>{% endif %}
-                            </div>
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Message</label>
-                            <div id="sys-upd-msg" class="text-secondary small border rounded px-2 py-1" style="min-height:36px;">{{ sys_update.message or 'Idle — no update requested.' }}</div>
-                        </div>
-                    </div>
-
-                    <hr>
-                    <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">
-                        <input type="hidden" name="action" value="system_update:request">
-                        <button type="submit" class="btn btn-primary" id="sys-upd-run"
-                                {% if (sys_update.state|default('idle')) in ('running',) %}disabled{% endif %}>
-                            <i class="fas fa-arrows-alt me-1"></i>Request Update
-                        </button>
-                    </form>
-                    <span class="text-secondary small ms-2">Picks up the latest code the next time the host watcher runs (see notes below).</span>
-
-                    <hr>
                     <h6 class="fw-bold"><i class="fas fa-sync text-primary me-1"></i>Self-update in the UI</h6>
                     <p class="text-secondary small mb-2">
-                        Replaces this running container <strong>entirely from here</strong>, without a host-side
-                        watcher or cron: the app talks to the Docker Engine over the mounted socket, pulls the new
-                        image, pre-creates a replacement container, and launches a tiny updater sidecar that swaps
-                        them (stop → rename → start). Requires read-write access to the host Docker socket.
+                        Replaces this running container <strong>entirely from here</strong>: the app talks to the
+                        Docker Engine over the mounted host socket, pulls the new image, pre-creates a replacement
+                        container, and launches a tiny updater sidecar that swaps them (stop → rename → start).
+                        No host-side watcher, cron, or terminal is needed. Requires read-write access to the host
+                        Docker socket.
                     </p>
                     <div class="d-flex align-items-center mb-2" id="self-upd-cap">
                         <span class="badge text-bg-secondary font-monospace me-1" id="self-upd-state-badge">checking…</span>
@@ -549,52 +517,6 @@
                             <i class="fas fa-cloud-arrow-alt me-1"></i>Replace this container (self-update)
                         </button>
                     </form>
-                    <hr>
-                    <h6 class="fw-bold"><i class="fas fa-clock me-1"></i>Cron setup (apply from here)</h6>
-                    <p class="text-secondary small mb-2">
-                        Choose how often the host should check for updates. This writes your choice to the shared
-                        state file; the host-side agent (<code>scripts/ui-cron-agent.sh</code>) installs it into your
-                        host crontab. Start the agent once on the host (runs in a terminal):
-                    </p>
-                    <pre class="border rounded p-2 bg-body-tertiary small" id="sys-cron-agent-pre"><code><span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-cron-agent.sh --watch</code></pre>
-                    <p class="text-secondary small mb-2">As you type the repo path above, the examples here update live.</p>
-
-                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end">
-                        <input type="hidden" name="action" value="system_cron:apply">
-                        <div class="col-md-3">
-                            <label class="form-label">Repo path (install dir)</label>
-                            <input type="text" class="form-control form-control-sm font-monospace" name="repo_path"
-                                   id="sys-cron-path" value="{{ sys_cron.repo_path or '' }}"
-                                   placeholder="e.g. /home/you/SDCodex">
-                            <div class="form-text">Used by the cron job to <code>cd</code> into; leave blank to auto-detect.</div>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Check every (minutes)</label>
-                            <input type="number" class="form-control form-control-sm" name="schedule_minutes"
-                                   id="sys-cron-minutes" min="1" max="59" value="{{ sys_cron.schedule_minutes|default(5) }}">
-                            <div class="form-text">1–59, e.g. 5.</div>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">…or raw cron expression (overrides minutes)</label>
-                            <input type="text" class="form-control form-control-sm" name="schedule" id="sys-cron-sched"
-                                   value="{{ sys_cron.schedule or '' }}" placeholder="e.g. 0 */2 * * *  (every 2 hours)">
-                        </div>
-                        <div class="col-md-3 d-flex flex-column">
-                            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-check me-1"></i>Save &amp; Apply on Host</button>
-                            <small class="text-secondary" id="sys-cron-state">
-                                {% if sys_cron.state == 'applied' %}Applied: {{ sys_cron.cron_line }}{% elif sys_cron.state == 'pending' %}Pending — waiting for the host agent…{% elif sys_cron.state == 'error' %}Error: {{ sys_cron.message }}{% else %}Not configured yet.{% endif %}
-                            </small>
-                        </div>
-                    </form>
-
-                    <hr>
-                    <h6 class="fw-bold">Host watcher — set this up once</h6>
-                    <p class="text-secondary small mb-1">The web app cannot run Docker itself (no Docker install inside the
-                        container). You must run the watcher on the <strong>host</strong>, e.g. via cron:</p>
-                    <pre class="border rounded p-2 bg-body-tertiary small"><code># every 5 minutes, as the user that owns the repo + Docker
-*/5 * * * * <span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-update-watcher.sh --once</code></pre>
-                    <p class="text-secondary small mb-1">Or run it continuously in a terminal:</p>
-                    <pre class="border rounded p-2 bg-body-tertiary small"><code><span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-update-watcher.sh --watch</code></pre>
                 </div>
             </div>
         </div>
@@ -886,23 +808,6 @@
             document.body.appendChild(modal);
         });
 
-        // Live-update the example paths in the Cron setup card when the user
-        // types an install directory (Repo path) — replaces the /path/to/SDCodex
-        // placeholder everywhere it appears in those examples.
-        const pathInput = document.getElementById('sys-cron-path');
-        const PLACEHOLDER = '/path/to/SDCodex';
-        if (pathInput) {
-            const applyPathEx = () => {
-                const value = (pathInput.value || '').trim().replace(/\/+$/, '');
-                const shown = value || PLACEHOLDER;
-                document.querySelectorAll('.sys-path-ex').forEach(span => {
-                    span.textContent = shown;
-                });
-            };
-            pathInput.addEventListener('input', applyPathEx);
-            applyPathEx(); // apply current saved value (e.g. when page reloads)
-        }
-
         // -------------------------------------------------------------------
         // In-UI self-update (Dockhand-style image swap)
         // -------------------------------------------------------------------
@@ -1136,55 +1041,5 @@
         }
     });
 
-    // Poll system-update state transmitted from the (single) settings page.
-    (function () {
-        const badge = document.getElementById('sys-upd-badge');
-        const msg = document.getElementById('sys-upd-msg');
-        const runBtn = document.getElementById('sys-upd-run');
-        if (!badge || !msg) return;
-
-        // Current state is already rendered by Jinja; use it as the starting point.
-        let lastState = {{ (sys_update.state|default('idle'))|tojson }};
-
-        async function pollSysUpd() {
-            try {
-                const r = await fetch('/settings/update_status');
-                if (!r.ok) return;
-                const s = await r.json();
-                lastState = s.state || 'idle';
-                badge.textContent = s.state || 'idle';
-                badge.className = 'badge text-bg-' +
-                    (s.state === 'done' ? 'success' : (s.state === 'failed' ? 'danger'
-                        : (s.state === 'running' ? 'warning' : 'secondary'))) + ' font-monospace';
-                if (s.message) msg.textContent = s.message;
-                if (runBtn) runBtn.disabled = (s.state === 'running');
-            } catch (e) { /* ignore transient errors */ }
-        }
-        setInterval(pollSysUpd, 5000);
-    })();
-
-    // Poll cron-setup state.
-    (function () {
-        const st = document.getElementById('sys-cron-state');
-        if (!st) return;
-        async function pollCron() {
-            try {
-                const r = await fetch('/settings/cron_status');
-                if (!r.ok) return;
-                const s = await r.json();
-                const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                if (s.state === 'applied') {
-                    st.textContent = 'Applied: ' + (s.cron_line || '');
-                } else if (s.state === 'pending') {
-                    st.textContent = 'Pending — waiting for the host agent…';
-                } else if (s.state === 'error') {
-                    st.textContent = 'Error: ' + (s.message || 'apply failed');
-                } else {
-                    st.textContent = 'Not configured yet.';
-                }
-            } catch (e) { /* ignore */ }
-        }
-        setInterval(pollCron, 5000);
-    })();
 </script>
 {% endblock %}
