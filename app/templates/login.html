@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Sign in — SD Codex{% endblock %}
 
+{% block navbar %}{% endblock navbar %}
+
 {% block content %}
 <div class="container" style="max-width: 460px;">
-    <div class="card shadow-sm mt-5">
+    <div class="text-center mb-2">
+        <img src="{{ url_for('static', filename='img/icon/SDCodex.svg') }}" alt="SD Codex Logo" width="80" height="80">
+        <h3 class="mb-1">SD Codex</h3>
+    </div>
+    <div class="card shadow-sm mt-4">
         <div class="card-header bg-body-tertiary">
             <h5 class="mb-0"><i class="fas fa-lock text-primary me-2"></i>Sign in to SD Codex</h5>
         </div>
