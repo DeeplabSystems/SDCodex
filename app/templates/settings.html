@@ -526,7 +526,8 @@
                         state file; the host-side agent (<code>scripts/ui-cron-agent.sh</code>) installs it into your
                         host crontab. Start the agent once on the host (runs in a terminal):
                     </p>
-                    <pre class="border rounded p-2 bg-body-tertiary small"><code>/path/to/SDCodex/scripts/ui-cron-agent.sh --watch</code></pre>
+                    <pre class="border rounded p-2 bg-body-tertiary small" id="sys-cron-agent-pre"><code><span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-cron-agent.sh --watch</code></pre>
+                    <p class="text-secondary small mb-2">As you type the repo path above, the examples here update live.</p>
 
                     <form method="post" action="{{ url_for('main.settings') }}" class="row g-3 align-items-end">
                         <input type="hidden" name="action" value="system_cron:apply">
@@ -561,9 +562,9 @@
                     <p class="text-secondary small mb-1">The web app cannot run Docker itself (no Docker install inside the
                         container). You must run the watcher on the <strong>host</strong>, e.g. via cron:</p>
                     <pre class="border rounded p-2 bg-body-tertiary small"><code># every 5 minutes, as the user that owns the repo + Docker
-*/5 * * * * /path/to/SDCodex/scripts/ui-update-watcher.sh --once</code></pre>
+*/5 * * * * <span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-update-watcher.sh --once</code></pre>
                     <p class="text-secondary small mb-1">Or run it continuously in a terminal:</p>
-                    <pre class="border rounded p-2 bg-body-tertiary small"><code>/path/to/SDCodex/scripts/ui-update-watcher.sh --watch</code></pre>
+                    <pre class="border rounded p-2 bg-body-tertiary small"><code><span class="sys-path-ex">/path/to/SDCodex</span>/scripts/ui-update-watcher.sh --watch</code></pre>
                 </div>
             </div>
         </div>
@@ -675,6 +676,23 @@
         document.querySelectorAll('.modal').forEach(modal => {
             document.body.appendChild(modal);
         });
+
+        // Live-update the example paths in the Cron setup card when the user
+        // types an install directory (Repo path) — replaces the /path/to/SDCodex
+        // placeholder everywhere it appears in those examples.
+        const pathInput = document.getElementById('sys-cron-path');
+        const PLACEHOLDER = '/path/to/SDCodex';
+        if (pathInput) {
+            const applyPathEx = () => {
+                const value = (pathInput.value || '').trim().replace(/\/+$/, '');
+                const shown = value || PLACEHOLDER;
+                document.querySelectorAll('.sys-path-ex').forEach(span => {
+                    span.textContent = shown;
+                });
+            };
+            pathInput.addEventListener('input', applyPathEx);
+            applyPathEx(); // apply current saved value (e.g. when page reloads)
+        }
 
         // Tab preservation via URL hash and query param
         const hash = window.location.hash;
