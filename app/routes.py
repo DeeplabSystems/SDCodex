@@ -972,6 +972,7 @@ def profile():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip()
         display_name = (request.form.get("display_name") or "").strip() or user.username
+        new_username = (request.form.get("username") or "").strip() or user.username
 
         # Authenticate the change with the current password (when the account
         # is local and has a password set). OIDC-only accounts skip this check.
@@ -987,7 +988,22 @@ def profile():
         else:
             ok = True  # no password set yet (bootstrap-created)
 
+        # Username changes are only meaningful for local accounts. OIDC/SSO
+        # accounts are matched to their IdP by username on every login, so
+        # renaming one would silently create a fresh account on next SSO.
+        username_is_local = not user.auth_provider.startswith("oidc")
+        if username_is_local and new_username != user.username:
+            if len(new_username) < 3:
+                flash("Username must be at least 3 characters.", "error")
+                return render_template("profile.html", profile_user=user)
+            clash = User.query.filter(User.username == new_username, User.id != user.id).first()
+            if clash:
+                flash(f"Username '{new_username}' is already taken.", "error")
+                return render_template("profile.html", profile_user=user)
+
         if ok:
+            if username_is_local:
+                user.username = new_username
             user.email = email
             user.display_name = display_name
             avatar_file = request.files.get("avatar")

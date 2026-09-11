@@ -51,6 +51,17 @@
                 <div class="card-body">
                     <form method="post" enctype="multipart/form-data">
                         <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            {% if profile_user.auth_provider == 'local' %}
+                            <input type="text" class="form-control" id="username" name="username"
+                                   value="{{ profile_user.username }}" minlength="3" required autocomplete="username">
+                            <div class="form-text">Your login username. At least 3 characters.</div>
+                            {% else %}
+                            <input type="text" class="form-control" id="username" value="{{ profile_user.username }}" disabled>
+                            <div class="form-text">Username is set by your single sign-on provider and cannot be changed.</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
                             <input type="email" class="form-control" id="email" name="email"
                                    value="{{ profile_user.email or '' }}" placeholder="you@example.com">
