@@ -31,7 +31,7 @@
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'plugins' %}active{% endif %} fw-semibold position-relative" id="plugins-tab" data-bs-toggle="tab" data-bs-target="#plugins" type="button" role="tab">
-                <i class="fas fa-puzzle-piece me-2"></i>Plugins & Extensions
+                <i class="fas fa-puzzle-piece me-2"></i>Plugins & Updates
                 {% if plugin_updates_count and plugin_updates_count > 0 %}
                 <span class="badge bg-danger rounded-pill ms-1">{{ plugin_updates_count }}</span>
                 {% endif %}
@@ -40,11 +40,6 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'library' %}active{% endif %} fw-semibold" id="library-tab" data-bs-toggle="tab" data-bs-target="#library" type="button" role="tab">
                 <i class="fas fa-sync me-2"></i>Model Management
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link {% if active_tab == 'system-update' %}active{% endif %} fw-semibold" id="system-update-tab" data-bs-toggle="tab" data-bs-target="#system-update" type="button" role="tab">
-                <i class="fas fa-sync-alt me-2"></i>System & Update
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -180,7 +175,7 @@
             </div>
         </div>
 
-        <!-- TAB 2: Plugins & Extensions -->
+        <!-- TAB 2: Plugins & Updates -->
         <div class="tab-pane fade {% if active_tab == 'plugins' %}show active{% endif %}" id="plugins" role="tabpanel">
             
             <!-- Compose Restart Instruction Alert -->
@@ -188,7 +183,7 @@
                 <i class="fas fa-info-circle fa-2x me-3"></i>
                 <div>
                     <h6 class="alert-heading mb-1 fw-bold">Modular Docker Stack</h6>
-                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, recreate the container from the <strong>Settings → System &amp; Update → Self-update</strong> card (which swaps the container via the Docker socket, no host terminal needed).</p>
+                    <p class="mb-0 small">When you install plugins or configure volume mounts, SDCodex updates your <code>.env</code> file and <code>docker-compose.yml</code>. To activate newly mounted volumes and features, recreate the container from the <strong>Self-update</strong> card further down on this page (which swaps the container via the Docker socket, no host terminal needed).</p>
                 </div>
             </div>
 
@@ -465,32 +460,11 @@
                     </details>
                 </div>
             </div>
-        </div>
 
-        <!-- TAB 3: Library Management -->
-        <div class="tab-pane fade {% if active_tab == 'library' %}show active{% endif %}" id="library" role="tabpanel">
-            <div class="card shadow-sm">
+            <!-- Core app self-update -->
+            <div class="card shadow-sm mt-4">
                 <div class="card-header bg-body-tertiary">
-                    <h5 class="mb-0"><i class="fas fa-sync text-primary me-2"></i>Model Management</h5>
-                </div>
-                <div class="card-body">
-                    <h6 class="card-title fw-bold">Scan Local Library</h6>
-                    <p class="card-text text-secondary">
-                        Scan your configured download directories for existing model files. This process identifies models, fetches missing metadata and preview images from Civitai, and adds them to your local collection.
-                    </p>
-                    <form action="{{ url_for('main.scan_library') }}" method="POST">
-                        <button type="submit" class="btn btn-secondary">
-                            <i class="fas fa-sync-alt me-2"></i>Scan Library Now
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <div class="tab-pane fade {% if active_tab == 'system-update' %}show active{% endif %}" id="system-update" role="tabpanel">
-            <div class="card shadow-sm">
-                <div class="card-header bg-body-tertiary">
-                    <h5 class="mb-0"><i class="fas fa-sync-alt text-primary me-2"></i>System &amp; Update</h5>
+                    <h5 class="mb-0"><i class="fas fa-sync-alt text-primary me-2"></i>Core App Update</h5>
                 </div>
                 <div class="card-body">
                     <h6 class="fw-bold"><i class="fas fa-sync text-primary me-1"></i>Self-update in the UI</h6>
@@ -515,6 +489,26 @@
                         <button type="button" class="btn btn-danger" id="self-upd-run"
                                 {% if not self_update_info.writable %}disabled{% endif %}>
                             <i class="fas fa-cloud-arrow-alt me-1"></i>Replace this container (self-update)
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: Library Management -->
+        <div class="tab-pane fade {% if active_tab == 'library' %}show active{% endif %}" id="library" role="tabpanel">
+            <div class="card shadow-sm">
+                <div class="card-header bg-body-tertiary">
+                    <h5 class="mb-0"><i class="fas fa-sync text-primary me-2"></i>Model Management</h5>
+                </div>
+                <div class="card-body">
+                    <h6 class="card-title fw-bold">Scan Local Library</h6>
+                    <p class="card-text text-secondary">
+                        Scan your configured download directories for existing model files. This process identifies models, fetches missing metadata and preview images from Civitai, and adds them to your local collection.
+                    </p>
+                    <form action="{{ url_for('main.scan_library') }}" method="POST">
+                        <button type="submit" class="btn btn-secondary">
+                            <i class="fas fa-sync-alt me-2"></i>Scan Library Now
                         </button>
                     </form>
                 </div>

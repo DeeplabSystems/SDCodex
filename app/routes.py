@@ -628,7 +628,7 @@ def settings():
             except Exception as e:
                 current_app.logger.exception("Failed to start in-UI self-update")
                 flash(f"Self-update failed to start: {e}", "error")
-            active_tab = "system-update"
+            active_tab = "plugins"
 
         return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
 
