@@ -109,7 +109,16 @@
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end shadow">
                             {% if auth_context and auth_context.authenticated and auth_context.user %}
-                            <li><h6 class="dropdown-header">{{ auth_context.user.display_name or auth_context.user.username }}</h6></li>
+                            <li class="d-flex align-items-center dropdown-header py-2">
+                                {% if auth_context.user.avatar %}
+                                <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
+                                     alt="Profile picture" class="rounded-circle me-2" width="32" height="32" style="object-fit:cover;">
+                                {% else %}
+                                <i class="fas fa-user-circle fa-lg me-2"></i>
+                                {% endif %}
+                                <span>{{ auth_context.user.display_name or auth_context.user.username }}</span>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.profile') }}"><i class="fas fa-user-cog me-2"></i>Profile</a></li>
                             <li><hr class="dropdown-divider"></li>
                             {% endif %}
