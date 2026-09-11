@@ -460,11 +460,38 @@ class PluginManager:
                     except Exception:
                         logger.exception("Background plugin update check failed")
                     try:
-                        self.core_update_cache = self.check_core_update()
+                        result = self.check_core_update()
+                        self.core_update_cache = result
+                        # Establish the deployed-revision baseline on first
+                        # startup. The old host-side update.sh used to write
+                        # db/core.rev; with self-update that file is no longer
+                        # created, so without this the header update icon can
+                        # never appear. We stamp once with the current remote
+                        # HEAD; afterwards the stamp stays frozen so any newer
+                        # push sets has_update=True.
+                        self._stamp_core_rev_if_missing(result.get("remote_sha", ""))
                     except Exception:
                         logger.exception("Background core update check failed")
         finally:
             self._monitor_lock.release()
+
+    def _stamp_core_rev_if_missing(self, remote_sha):
+        """Write ``db/core.rev`` on first startup so the core-update check has a
+        local baseline to compare against. No-op once a stamp already exists."""
+        if not remote_sha or self._read_core_local_rev():
+            return
+        for path in self._core_rev_dirs():
+            if not path:
+                continue
+            parent = os.path.dirname(path)
+            try:
+                os.makedirs(parent, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(remote_sha)
+                logger.info("Stamped core.rev baseline: %s -> %s", path, remote_sha[:7])
+                return  # first writable candidate wins
+            except Exception:
+                continue
 
     def _start_monitor(self):
         """Start a daemon thread that keeps update caches fresh for the header."""
