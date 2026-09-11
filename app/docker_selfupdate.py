@@ -89,6 +89,27 @@ def _build_updater_image(ctx):
     )
 
 
+def _build_sdcodex_image(repo_tag, app_root="/app"):
+    """Build a fresh, per-user SDCodex image from this container's live /app
+    tree via the classic /build API. Returns the image tag. This is what makes
+    self-update reflect each user's installed plugins/requirements (the build
+    context includes their mounted app/requirements/entrypoint and the current
+    Dockerfile), instead of pulling a generic published image."""
+    if not os.path.isfile(os.path.join(app_root, "Dockerfile")):
+        raise SelfUpdateError(
+            f"No Dockerfile found at {app_root}/Dockerfile to build the image from."
+        )
+    tar_bytes = _tar_app_context(app_root)
+    docker_api.request_raw(
+        "POST",
+        f"/build?dockerfile=Dockerfile&t={quote(repo_tag, safe='/')}",
+        body=tar_bytes,
+        headers={"Content-Type": "application/x-tar"},
+        timeout=1200,
+    )
+    return repo_tag
+
+
 def _tar_directory(dirpath):
     """Pack a directory (Dockerfile + update.sh) into a tar in memory."""
     out = io.BytesIO()
@@ -104,6 +125,58 @@ def _tar_directory(dirpath):
             info = tarfile.TarInfo(fname)
             info.size = len(data)
             info.mode = 0o755 if os.access(full, os.X_OK) else 0o644
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(data))
+    out.seek(0)
+    return out.getvalue()
+
+
+# Entries under /app that must never be baked into a per-user image: runtime
+# secrets/config, and large/generated directories that are bind-mounted anyway.
+_BUILD_IGNORE = {
+    ".env", "docker-compose.yml", "docker-compose.override.yml", "env.example",
+    ".ferrite", ".git", "__pycache__", ".pytest_cache", ".dockerignore",
+    "db", "mounts", "config", "tasks", "downloads", "plugins", "updater",
+    "static/downloads", "static/uploads", "static/saved_gallery",
+}
+_BUILD_IGNORE_SUFFIX = (".pyc", ".pyo", ".md")
+
+
+def _tar_app_context(app_root="/app"):
+    """Assemble a clean Docker build context from the live /app tree (the app's
+    own code + the user's mounted per-user files), excluding secrets and the
+    large bind-mounted media dirs. Used so self-update *builds* an image that
+    reflects each user's installed plugins/requirements rather than pulling a
+    generic published image."""
+    files = []
+
+    def _rel(child_abs):
+        return os.path.relpath(child_abs, app_root).replace(os.sep, "/")
+
+    def _pruned(rel):
+        # Ignore if the whole relative path is listed, or its top component is.
+        parts = rel.split("/")
+        return rel in _BUILD_IGNORE or parts[0] in _BUILD_IGNORE
+
+    for dirpath, dirnames, filenames in os.walk(app_root):
+        dirnames[:] = [d for d in dirnames if not _pruned(_rel(os.path.join(dirpath, d)))]
+        for fn in filenames:
+            rel = _rel(os.path.join(dirpath, fn))
+            if _pruned(rel) or fn.endswith(_BUILD_IGNORE_SUFFIX):
+                continue
+            full = os.path.join(dirpath, fn)
+            try:
+                data = open(full, "rb").read()
+            except OSError:
+                continue
+            files.append((rel, data, os.access(full, os.X_OK)))
+    files.sort(key=lambda x: x[0])
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w") as tar:
+        for rel, data, xok in files:
+            info = tarfile.TarInfo(rel)
+            info.size = len(data)
+            info.mode = 0o755 if xok else 0o644
             info.mtime = int(time.time())
             tar.addfile(info, io.BytesIO(data))
     out.seek(0)
@@ -270,15 +343,33 @@ def self_update_generator(new_image):
         own = docker_api.get_own_container_id()
         name = docker_api.get_own_container_name(own) or f"sdcodex-{own[:12]}"
 
-        # 1) pull new image
-        yield step("pulling_image", "active", f"Pulling {new_image}...")
-        yield log(f"Pulling {new_image}...")
-        try:
-            _pull_image(new_image)
-        except docker_api.DockerApiError as exc:
-            raise SelfUpdateError(f"Failed to pull {new_image}: {exc}") from exc
-        yield step("pulling_image", "completed", "Image pulled")
-        yield log("Image pulled")
+        # 1) obtain the new image: BUILD a fresh per-user image from this
+        # container's live /app state (the user's installed plugins/requirements
+        # are part of the build context). Only PULL when the operator explicitly
+        # names a different remote image in the field.
+        deployed = _default_image()
+        build_mode = (not new_image) or (new_image == deployed)
+        if build_mode:
+            local_tag = f"sdcodex-selfupdate:sdupdate-{int(time.time())}"
+            yield step("pulling_image", "active",
+                       f"Building {local_tag} from this container's installed state...")
+            yield log(f"Building per-user image {local_tag} (no generic pull)...")
+            try:
+                _build_sdcodex_image(local_tag)
+            except Exception as exc:
+                raise SelfUpdateError(f"Failed to build image: {exc}") from exc
+            yield step("pulling_image", "completed", "Image built")
+            yield log("Image built from current state")
+            new_image = local_tag
+        else:
+            yield step("pulling_image", "active", f"Pulling {new_image}...")
+            yield log(f"Pulling {new_image}...")
+            try:
+                _pull_image(new_image)
+            except docker_api.DockerApiError as exc:
+                raise SelfUpdateError(f"Failed to pull {new_image}: {exc}") from exc
+            yield step("pulling_image", "completed", "Image pulled")
+            yield log("Image pulled")
 
         # 2) build create config from self-inspect
         yield step("building_config", "active", "Building container config...")

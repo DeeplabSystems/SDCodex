@@ -31,6 +31,7 @@ services:
       - ${DB:-./db}:/data/db
       - ./app:/app/app
       - ./run.py:/app/run.py
+      - ./Dockerfile:/app/Dockerfile:ro
       - ${MODELS:-./app/static/downloads}:/app/app/static/downloads
       - ./plugins:/app/plugins
       - ./entrypoint.sh:/entrypoint.sh:ro
