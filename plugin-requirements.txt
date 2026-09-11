@@ -1,0 +1,6 @@
+# Plugin dependencies (per-user).
+#
+# This file is written by Settings -> Plugins when you install/extend a plugin.
+# It is NOT pulled by app self-updates: `git pull` treats it as frozen so your
+# installed plugin deps are preserved. Both this file and requirements.txt are
+# pip-installed at image build time.
