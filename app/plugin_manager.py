@@ -125,8 +125,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
                     {"label": "Quick Download", "url": "/one-time", "icon": "fas fa-download"},
                     {"label": "Kiosks", "url": "/kiosks", "icon": "fas fa-desktop"},
                     {"label": "OAuth", "url": "/oauth", "icon": "fas fa-key"},
-                    {"label": "Logs", "url": "/logs", "icon": "fas fa-list-alt"},
-                    {"label": "GDL Config", "url": "/config", "icon": "fas fa-sliders-h"}
+                    {"label": "Logs", "url": "/logs", "icon": "fas fa-list-alt"}
                 ]
             }
         ],
