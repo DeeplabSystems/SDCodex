@@ -236,17 +236,6 @@
 
                             <!-- Actions Row -->
                             <div class="d-flex flex-wrap gap-2 pt-2 border-top">
-                                {# A settings shortcut only makes sense for a single settings entry
-                                   (tabs for multi-entry settings are already rendered at the top
-                                   of this page). GalleryDL exposes its three settings as tabs once
-                                   installed, so no shortcut button is shown for it. #}
-                                {% set plugin_settings_entries = plugin.settings if (plugin.settings is not mapping and plugin.settings is not none) else ([plugin.settings] if plugin.settings else []) %}
-                                {% if plugin.settings and plugin_settings_entries|length == 1 %}
-                                {% set settings_btn_label = plugin.settings.label if plugin.settings is mapping else plugin_settings_entries[0].label %}
-                                <a href="{{ url_for('main.settings', tab='plugin-' + plugin.id) }}" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-sliders-h me-1"></i>{{ settings_btn_label or 'Settings' }}
-                                </a>
-                                {% endif %}
 
                                 {% if plugin.has_update %}
                                 <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">

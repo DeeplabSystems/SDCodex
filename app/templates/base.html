@@ -83,13 +83,24 @@
                     <button id="theme-toggle" class="btn btn-link nav-icon me-2" title="Toggle Theme">
                         <i class="fas fa-moon"></i>
                     </button>
+                    {% if header_updates and header_updates.total and header_updates.total > 0 %}
+                    {% set core_u = header_updates.core %}
+                    {% set plug_ups = header_updates.plugins %}
+                    {% set tt_parts = [] %}
+                    {% if core_u.get('has_update') %}
+                        {% set _ = tt_parts.append('• Core (SDCodex) update available (' ~ (core_u.get('remote_sha') or '')[:7] ~ ')') %}
+                    {% endif %}
+                    {% for u in plug_ups %}
+                        {% set _ = tt_parts.append('• ' ~ u.name ~ ': v' ~ u.current_version ~ ' → v' ~ u.latest_version) %}
+                    {% endfor %}
+                    <a href="{{ url_for('main.settings', tab='plugins') }}" class="nav-icon me-2 position-relative" id="header-updates-icon"
+                       title="{{ tt_parts|join('&#10;') }}">
+                        <i class="fas fa-cloud-arrow-up fa-lg text-warning-emphasis"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.65rem;">{{ header_updates.total }}</span>
+                    </a>
+                    {% endif %}
                     <a href="{{ url_for('main.settings', tab='plugins') if (plugin_updates_count and plugin_updates_count > 0) else url_for('main.settings') }}" class="nav-icon me-3 position-relative" title="Settings">
                         <i class="fas fa-cog fa-lg"></i>
-                        {% if plugin_updates_count and plugin_updates_count > 0 %}
-                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.65rem;" title="{{ plugin_updates_count }} plugin update(s) available">
-                            {{ plugin_updates_count }}
-                        </span>
-                        {% endif %}
                     </a>
                 </div>
             </div>

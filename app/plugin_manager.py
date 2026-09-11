@@ -3,6 +3,7 @@ import sys
 import json
 import logging
 import re
+import threading
 import urllib.request
 import urllib.error
 import subprocess
@@ -192,12 +193,19 @@ DEFAULT_PLUGIN_MANIFESTS = {
 }
 
 class PluginManager:
+    CORE_REPO = "DeeplabSystems/SDCodex"
+    # Header auto-refresh interval for update checks.
+    MONITOR_INTERVAL = int(os.environ.get("UPDATE_MONITOR_INTERVAL", "300"))  # seconds
+
     def __init__(self):
         self.app = None
         self.db = None
         self.plugins_dir = None
         self.loaded_plugins = {}
         self.update_cache = {}
+        self.core_update_cache = {}
+        self._monitor_lock = threading.Lock()
+        self._monitor_thread = None
         self.store_info = {
             "store": {"name": "SDCodex Plugin Store", "url": DEFAULT_PLUGIN_STORE_URL, "reachable": False},
             "plugins": [],
@@ -230,8 +238,13 @@ class PluginManager:
             return {
                 "plugin_nav_items": self.get_nav_items(),
                 "plugin_updates_count": self.get_pending_updates_count(),
-                "installed_plugins": self.get_installed_plugins()
+                "installed_plugins": self.get_installed_plugins(),
+                "header_updates": self.get_header_updates(),
             }
+
+        # Background updater: keeps update_cache + core_update_cache fresh so the
+        # header update icon reflects the latest state without stalling page loads.
+        self._start_monitor()
 
     def _ensure_default_repos(self):
         """Seed default plugin repositories into the database if not present."""
@@ -362,6 +375,137 @@ class PluginManager:
             if self.update_cache.get(plugin_id, {}).get("has_update", False):
                 count += 1
         return count
+
+    # ------------------------------------------------------------------ core
+    def _core_rev_dirs(self):
+        """Candidate paths for the deployed core revision stamp."""
+        cands = [os.environ.get("CORE_REV_FILE")]
+        # inside container: shared /data/db; on dev host: ./db
+        cands.append(os.path.join(os.environ.get("DATA_DIR", "/data"), "db", "core.rev"))
+        cands.append(os.path.join(os.path.dirname(self.plugins_dir), "db", "core.rev"))
+        return [c for c in cands if c]
+
+    def _read_core_local_rev(self):
+        for p in self._core_rev_dirs():
+            if p and os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as fh:
+                        v = fh.read().strip()
+                    if v:
+                        return v
+                except Exception:
+                    continue
+        return ""
+
+    def _github_json(self, url, timeout=6):
+        token = self._get_github_token()
+        headers = {"User-Agent": "SDCodex-Plugin-Manager/1.0", "Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def check_core_update(self):
+        """Compare the deployed core SHA against the remote default branch.
+
+        Returns a dict (cached in ``core_update_cache``) with
+        ``has_update``, ``local_sha``, ``remote_sha``, ``branch`` and the
+        latest remote commit message/date. ``local_sha`` comes from the
+        host-written stamp ``db/core.rev`` (populated by ``update.sh``), so the
+        check is meaningful only once that stamp exists.
+        """
+        local = self._read_core_local_rev()
+        result = {
+            "has_update": False,
+            "known": bool(local),
+            "local_sha": local,
+            "remote_sha": "",
+            "branch": "",
+            "message": "",
+            "checked_at": None,
+        }
+        try:
+            meta = self._github_json(f"https://api.github.com/repos/{self.CORE_REPO}")
+            branch = meta.get("default_branch") or "main"
+            result["branch"] = branch
+            commit = self._github_json(
+                f"https://api.github.com/repos/{self.CORE_REPO}/commits/{branch}?per_page=1"
+            )
+            remote = (commit.get("sha") or "").strip()
+            result["remote_sha"] = remote
+            if commit.get("commit"):
+                result["message"] = (commit["commit"].get("message") or "").splitlines()[0][:200]
+                if commit["commit"].get("committer"):
+                    result["checked_at"] = commit["commit"]["committer"].get("date")
+            if local and remote:
+                result["has_update"] = (remote[:7] != local[:7]) and remote != local
+            result["ok"] = True
+        except Exception as e:
+            logger.warning("Core update check failed: %s", e)
+            result["ok"] = False
+            result["error"] = str(e)
+        return result
+
+    def _refresh_all(self):
+        """Run the plugin + core update checks and cache results. Call on a
+        background thread; never block a page request with this."""
+        if not self._monitor_lock.acquire(blocking=False):
+            return
+        try:
+            if self.app:
+                with self.app.app_context():
+                    try:
+                        self.check_updates()
+                    except Exception:
+                        logger.exception("Background plugin update check failed")
+                    try:
+                        self.core_update_cache = self.check_core_update()
+                    except Exception:
+                        logger.exception("Background core update check failed")
+        finally:
+            self._monitor_lock.release()
+
+    def _start_monitor(self):
+        """Start a daemon thread that keeps update caches fresh for the header."""
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            return
+        def loop():
+            # First refresh shortly after startup so the icon appears quickly.
+            import time as _time
+            _time.sleep(2)
+            self._refresh_all()
+            while True:
+                _time.sleep(max(int(self.MONITOR_INTERVAL), 60))
+                self._refresh_all()
+        self._monitor_thread = threading.Thread(target=loop, daemon=True, name="sdcodex-update-monitor")
+        self._monitor_thread.start()
+
+    def get_header_updates(self):
+        """Aggregate core + plugin updates for the header update icon.
+
+        Returns dict with ``total``, ``core`` (dict) and ``plugins`` (list of
+        ``{id, name, current_version, latest_version}``). Reading this never
+        does network I/O — it reflects the last background refresh.
+        """
+        core = self.core_update_cache or {}
+        plugins = []
+        for pid in self.loaded_plugins:
+            info = self.update_cache.get(pid, {})
+            if info.get("has_update"):
+                m = self.loaded_plugins.get(pid, {})
+                plugins.append({
+                    "id": pid,
+                    "name": m.get("name", pid),
+                    "current_version": info.get("current_version", m.get("version", "")),
+                    "latest_version": info.get("latest_version", ""),
+                })
+        total = (1 if core.get("has_update") else 0) + len(plugins)
+        return {
+            "total": total,
+            "core": core,
+            "plugins": plugins,
+        }
 
     def normalize_github_url(self, url):
         """Normalize URL or owner/repo to owner/repo and canonical URL."""
