@@ -72,6 +72,27 @@ SDCodex features an extensible plugin architecture. The core application provide
      ```
    - The newly mounted volumes and features will immediately be available in SDCodex!
 
+### Updating from the web UI
+
+The **Settings &rarr; System &amp; Update** tab has a **Request Update** button.
+Because the app runs inside Docker (no `docker`/`docker-compose` inside the
+container, and `docker compose down`/`up -d --build` are host operations), the
+button only *records* an update request in a shared state file
+(`<repo>/db/system_update.json`, bind-mounted as `/data/db`). A small
+**host-side** watcher applies it:
+
+```bash
+# continuous (in a terminal) — or run the same binary from cron:
+scripts/ui-update-watcher.sh --watch
+
+# cron style: check-and-apply once, e.g. every 5 minutes
+# */5 * * * * /path/to/SDCodex/scripts/ui-update-watcher.sh --once
+```
+
+The watcher runs `update.sh` (`git pull` + `docker compose up -d --build`) on
+the host whenever a request is pending, and records the outcome (and git
+commit) back into the state file so the web UI shows status/progress.
+
 ---
 
 ## 🛠️ Plugin Development

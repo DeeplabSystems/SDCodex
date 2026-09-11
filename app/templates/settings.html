@@ -42,6 +42,11 @@
                 <i class="fas fa-sync me-2"></i>Model Management
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if active_tab == 'system-update' %}active{% endif %} fw-semibold" id="system-update-tab" data-bs-toggle="tab" data-bs-target="#system-update" type="button" role="tab">
+                <i class="fas fa-sync-alt me-2"></i>System & Update
+            </button>
+        </li>
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
             {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
@@ -487,6 +492,56 @@
             </div>
         </div>
 
+        <div class="tab-pane fade {% if active_tab == 'system-update' %}show active{% endif %}" id="system-update" role="tabpanel">
+            <div class="card shadow-sm">
+                <div class="card-header bg-body-tertiary">
+                    <h5 class="mb-0"><i class="fas fa-sync-alt text-primary me-2"></i>System &amp; Update</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary small">
+                        Pull the latest core code and rebuild/restart the container by running
+                        <code>update.sh</code>. Because the app runs inside Docker, the actual
+                        <code>git pull</code> + <code>docker compose up -d --build</code> runs on the
+                        <strong>host</strong>: this button records an update request, and a small host-side
+                        watcher (<code>scripts/ui-update-watcher.sh</code>, typically on cron) applies it.
+                    </p>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Status</label>
+                            <div class="d-flex align-items-center">
+                                <span id="sys-upd-badge" class="badge text-bg-{{ 'success' if (sys_update.state|default('idle')) == 'done' else ('danger' if (sys_update.state|default('idle')) == 'failed' else 'secondary') }} font-monospace" style="font-size:0.9rem;">{{ sys_update.state|default('idle') }}</span>
+                                {% if sys_update.version %}<span class="ms-2 text-secondary small font-monospace">{{ sys_update.version }}</span>{% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Message</label>
+                            <div id="sys-upd-msg" class="text-secondary small border rounded px-2 py-1" style="min-height:36px;">{{ sys_update.message or 'Idle — no update requested.' }}</div>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">
+                        <input type="hidden" name="action" value="system_update:request">
+                        <button type="submit" class="btn btn-primary" id="sys-upd-run"
+                                {% if (sys_update.state|default('idle')) in ('running',) %}disabled{% endif %}>
+                            <i class="fas fa-arrows-alt me-1"></i>Request Update
+                        </button>
+                    </form>
+                    <span class="text-secondary small ms-2">Picks up the latest code the next time the host watcher runs (see notes below).</span>
+
+                    <hr>
+                    <h6 class="fw-bold">Host watcher — set this up once</h6>
+                    <p class="text-secondary small mb-1">The web app cannot run Docker itself (no Docker install inside the
+                        container). You must run the watcher on the <strong>host</strong>, e.g. via cron:</p>
+                    <pre class="border rounded p-2 bg-body-tertiary small"><code># every 5 minutes, as the user that owns the repo + Docker
+*/5 * * * * /path/to/SDCodex/scripts/ui-update-watcher.sh --once</code></pre>
+                    <p class="text-secondary small mb-1">Or run it continuously in a terminal:</p>
+                    <pre class="border rounded p-2 bg-body-tertiary small"><code>/path/to/SDCodex/scripts/ui-update-watcher.sh --watch</code></pre>
+                </div>
+            </div>
+        </div>
+
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
             {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
@@ -605,5 +660,32 @@
             }
         }
     });
+
+    // Poll system-update state transmitted from the (single) settings page.
+    (function () {
+        const badge = document.getElementById('sys-upd-badge');
+        const msg = document.getElementById('sys-upd-msg');
+        const runBtn = document.getElementById('sys-upd-run');
+        if (!badge || !msg) return;
+
+        // Current state is already rendered by Jinja; use it as the starting point.
+        let lastState = {{ (sys_update.state|default('idle'))|tojson }};
+
+        async function pollSysUpd() {
+            try {
+                const r = await fetch('/settings/update_status');
+                if (!r.ok) return;
+                const s = await r.json();
+                lastState = s.state || 'idle';
+                badge.textContent = s.state || 'idle';
+                badge.className = 'badge text-bg-' +
+                    (s.state === 'done' ? 'success' : (s.state === 'failed' ? 'danger'
+                        : (s.state === 'running' ? 'warning' : 'secondary'))) + ' font-monospace';
+                if (s.message) msg.textContent = s.message;
+                if (runBtn) runBtn.disabled = (s.state === 'running');
+            } catch (e) { /* ignore transient errors */ }
+        }
+        setInterval(pollSysUpd, 5000);
+    })();
 </script>
 {% endblock %}

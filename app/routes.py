@@ -15,6 +15,7 @@ from app import db
 from app.models import Setting, Download, PluginRepo
 from app.download_manager import download_manager
 from app.plugin_manager import plugin_manager
+from app import system_updates
 from flask_paginate import Pagination, get_page_parameter
 import os
 import re
@@ -595,6 +596,22 @@ def settings():
             flash(f"Plugin '{plugin_id}' has been {status_str}.", "info")
             active_tab = "plugins"
 
+        elif action == "system_update:request":
+            # Record an update request; the host-side watcher picks it up and
+            # runs update.sh (git pull + compose rebuild). Safe to call while
+            # the container is busy — apply happens on the host, on the next
+            # watcher/cron tick.
+            try:
+                status = system_updates.request_update(request.form.get("requested_by", "web"))
+                if status.get("state") == "running":
+                    flash("An update is already being applied on the host.", "info")
+                else:
+                    flash("Update requested. It will be applied by the host updater on its next run.", "success")
+            except Exception as e:
+                current_app.logger.exception("Failed to record system update request")
+                flash(f"Update request failed: {e}", "error")
+            active_tab = "system-update"
+
         return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
 
     # GET Request context
@@ -645,6 +662,8 @@ def settings():
         "last_checked": store_info.get("last_checked", ""),
     }
 
+    sys_update = system_updates.get_status()
+
     return render_template(
         "settings.html",
         api_key=api_key,
@@ -659,6 +678,7 @@ def settings():
         github_token=github_token,
         store_info=store_info,
         store_url=plugin_manager.get_store_url(),
+        sys_update=sys_update,
         active_tab=active_tab,
     )
 
@@ -683,6 +703,10 @@ def scan_library():
     download_manager.add_task(task_type='scan', api_key=api_key)
     flash("Library scan started in background.", "info")
     return redirect(url_for("main.settings", tab="library") + "#library")
+
+@main.route("/settings/update_status", methods=["GET"])
+def update_status():
+    return jsonify(system_updates.get_status())
 
 @main.context_processor
 def inject_downloaded_models():
