@@ -1,0 +1,271 @@
+"""Tests for the in-UI self-update (Docker Engine API + self-update orchestration).
+
+These run without a Docker daemon: the Docker API client is exercised against an
+in-memory Unix-socket fake, and the pure helper functions are unit-tested. Run
+with:  python -m pytest tests/test_docker_selfupdate.py -q
+"""
+
+import importlib.util
+import json
+import os
+import socket
+import struct
+import sys
+import tempfile
+import threading
+import types
+
+import pytest
+
+
+def _load(pkg_name, path, as_name):
+    path = os.path.abspath(path)
+    # Load docker_api as a plain module (it has no relative imports) and register
+    # it under the fake package so docker_selfupdate's `from . import docker_api`
+    # resolves.
+    if as_name == "docker_api":
+        spec = importlib.util.spec_from_file_location("docker_api", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["docker_api"] = mod
+        sys.modules[f"{pkg_name}.docker_api"] = mod
+        return mod
+    # docker_selfupdate uses `from . import docker_api`; fake a package.
+    pkg = types.ModuleType(pkg_name)
+    pkg.__path__ = []
+    pkg.docker_api = sys.modules["docker_api"]
+    sys.modules[pkg_name] = pkg
+    sys.modules[f"{pkg_name}.docker_api"] = sys.modules["docker_api"]
+    fq = f"{pkg_name}.docker_selfupdate"
+    spec = importlib.util.spec_from_file_location(fq, path)
+    dot = importlib.util.module_from_spec(spec)
+    sys.modules[fq] = dot
+    sys.modules[as_name] = dot
+    spec.loader.exec_module(dot)
+    return dot
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOCKER_API = _load("appx", os.path.join(ROOT, "app", "docker_api.py"), "docker_api")
+SELFUPDATE = _load("appx", os.path.join(ROOT, "app", "docker_selfupdate.py"), "appx_docker_selfupdate")
+SELFUPDATE.docker_api = DOCKER_API
+
+
+# --------------------------------------------------------------------------- #
+# Pure helpers
+# --------------------------------------------------------------------------- #
+
+def test_split_image_ref():
+    assert SELFUPDATE._split_image_ref("org/app:latest") == ("org/app", "latest")
+    assert SELFUPDATE._split_image_ref("org/app") == ("org/app", "latest")
+    assert SELFUPDATE._split_image_ref("org/app:2.1.0") == ("org/app", "2.1.0")
+
+
+def test_build_network_env():
+    info = {"NetworkSettings": {"Networks": {
+        "web": {"IPAMConfig": {"IPv4Address": "10.0.0.5"}, "Aliases": ["alias1"]},
+        "default": {},
+    }}}
+    envs = SELFUPDATE.build_network_env(info)
+    assert envs[0] == "NETWORKS=web default"
+    assert "NETWORK_OPTS_web=--ip 10.0.0.5 --alias alias1" in envs
+
+
+def test_build_create_config():
+    inspect = {
+        "Config": {"Image": "old", "Cmd": ["x"], "Entrypoint": ["y"], "Hostname": "zz",
+                   "Volumes": {"/data/db": {}, "/app": {}}, "Env": ["A=1"]},
+        "HostConfig": {},
+        "Mounts": [
+            {"Type": "bind", "Source": "/home/me/db", "Destination": "/data/db", "RW": True},
+            {"Type": "volume", "Name": "v1", "Destination": "/vol"},
+        ],
+    }
+    cc = SELFUPDATE.build_create_config(inspect, "new:img")
+    assert cc["Image"] == "new:img"
+    for key in ("Entrypoint", "Cmd", "Hostname", "MacAddress", "NetworkingConfig"):
+        assert key not in cc, key
+    assert "/data/db:/home/me/db:rw" in cc["HostConfig"]["Binds"]
+    # /data/db is bound -> must not remain in Volumes
+    assert "/data/db" not in (cc.get("Volumes") or {})
+    # /app has no bind -> stays as an anonymous volume
+    assert "/app" in (cc.get("Volumes") or {})
+
+
+def test_decode_container_logs():
+    def frame(stream_type, payload):
+        return struct.pack("B3xI", stream_type, len(payload)) + payload
+    raw = frame(1, b"Stopping container\n") + frame(2, b"ERROR: nope\n")
+    out = DOCKER_API.decode_container_logs(raw)
+    assert "Stopping container" in out
+    assert "ERROR: nope" in out
+    # plain text fallback
+    assert DOCKER_API.decode_container_logs(b"Starting\nDone\n") == "Starting\nDone"
+
+
+# --------------------------------------------------------------------------- #
+# Unix-socket HTTP client (in-memory fake daemon)
+# --------------------------------------------------------------------------- #
+
+class _FakeDaemon:
+    """A tiny Docker-API-shaped HTTP server on a Unix socket."""
+
+    def __init__(self):
+        self.path = tempfile.mktemp(suffix=".sock")
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.bind(self.path)
+        self.sock.listen(8)
+        self.routes = {}
+        self._stop = threading.Event()
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def add(self, route, handler):
+        self.routes[route] = handler
+
+    def _loop(self):
+        while not self._stop.is_set():
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            with conn:
+                conn.settimeout(3)
+                try:
+                    data = conn.recv(65536).decode("utf-8", "replace")
+                except OSError:
+                    continue
+                if not data:
+                    continue
+                line = data.split("\r\n")[0]
+                method, path, _ = line.split(" ", 2)
+                qs_path = path.split("?")[0]
+                handler = self.routes.get(qs_path)
+                status = 200
+                body = b"{}"
+                if handler:
+                    try:
+                        status, body = handler(method, path)
+                    except Exception:
+                        status, body = 500, b'{"error":"fake"}'
+                elif qs_path == "/_ping":
+                    status, body = 200, b"{}"
+                else:
+                    status, body = 404, b'{"message":"no such container"}'
+                self._send(conn, status, body)
+
+    @staticmethod
+    def _send(conn, status, body):
+        conn.sendall(
+            f"HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+        )
+
+
+@pytest.fixture
+def fake_daemon():
+    d = _FakeDaemon()
+    old = os.environ.get("DOCKER_HOST")
+    os.environ.pop("DOCKER_HOST", None)
+    DOCKER_API.DEFAULT_SOCKET_PATH = d.path
+    yield d
+    d._stop.set()
+    d.sock.close()
+    try:
+        os.unlink(d.path)
+    except OSError:
+        pass
+    if old is not None:
+        os.environ["DOCKER_HOST"] = old
+
+
+def test_request_json(fake_daemon):
+    fake_daemon.add("/containers/create", lambda m, p:
+                    (201, json.dumps({"Id": "abcd"}).encode()))
+    assert DOCKER_API.request("POST", "/containers/create?name=x", body={"Image": "i"}) \
+        == {"Id": "abcd"}
+
+
+def test_request_raw(fake_daemon):
+    fake_daemon.add("/images/create", lambda m, p: (200, b'{"stream":"Pull..."}\n'))
+    assert DOCKER_API.request_raw("POST", "/images/create") \
+        == b'{"stream":"Pull..."}\n'
+
+
+def test_request_404_raises(fake_daemon):
+    with pytest.raises(DOCKER_API.DockerApiError):
+        DOCKER_API.request("GET", "/containers/nope/json")
+
+
+def test_is_docker_writable_from_mounts(fake_daemon):
+    fake_daemon.add("/containers/abc/json", lambda m, p:
+                    (200, json.dumps({"Mounts": [
+                        {"Destination": DOCKER_API.DEFAULT_SOCKET_PATH, "RW": False}]}).encode()) if False
+                    else (200, json.dumps({"Mounts": [
+                        {"Destination": DOCKER_API.DEFAULT_SOCKET_PATH, "RW": True}]}).encode()))
+    assert DOCKER_API.is_docker_writable("abc") is True
+
+
+# --------------------------------------------------------------------------- #
+# Self-update orchestration (mocked backend, no daemon)
+# --------------------------------------------------------------------------- #
+
+def test_self_update_generator_launches():
+    engine = {"n_calls": 0}
+
+    def fake_request(method, path, **kw):
+        if path.startswith("/containers/create") and "updater" not in path:
+            return {"Id": "n" * 64}
+        if path.startswith("/containers/json?all=true"):
+            return []
+        if path.startswith("/containers/" + "a" * 64):
+            return {
+                "Config": {"Image": "old", "Env": ["A=1"],
+                           "Volumes": {"/data/db": {}, "/app": {}}},
+                "HostConfig": {},
+                "Mounts": [{"Type": "bind", "Source": "/x/db",
+                            "Destination": "/data/db", "RW": True}],
+                "NetworkSettings": {"Networks": {"default": {}}},
+            }
+        if "/start" in path:
+            return None
+        return {"Id": "zz"}
+
+    DOCKER_API.get_own_container_id = lambda *a, **k: "a" * 64
+    DOCKER_API.get_own_container_name = lambda *a, **k: "sdcodex"
+    DOCKER_API.is_docker_writable = lambda *a, **k: True
+    DOCKER_API.request = fake_request
+    DOCKER_API.request_raw = lambda *a, **k: b""
+
+    events = list(SELFUPDATE.self_update_generator("org/app:9.9.9"))
+    kinds = [e["event"] for e in events]
+    assert kinds[-1] == "launched", kinds
+    assert "error" not in kinds, kinds
+    launched = [e for e in events if e["event"] == "launched"][0]
+    assert launched["data"]["updaterId"] == "zz"
+
+
+def test_self_update_readonly_error():
+    DOCKER_API.get_own_container_id = lambda *a, **k: "a" * 64
+    DOCKER_API.is_docker_writable = lambda *a, **k: False
+    events = list(SELFUPDATE.self_update_generator("org/app:1"))
+    assert events[-1]["event"] == "error"
+    assert "read-only" in events[-1]["data"]["message"]
+
+
+def test_poll_updater_progress_exited():
+    DOCKER_API.request = lambda m, p, **kw: {"State": {"Running": False, "ExitCode": 1}}
+    DOCKER_API.request_raw = lambda m, p, **kw: b"\x00\x00\x00\x00\x00\x00\x00\x0eUpdater FAILED\n"
+    DOCKER_API.decode_container_logs = lambda raw: "Updater FAILED"
+    p = SELFUPDATE.poll_updater_progress("zz")
+    assert p["status"] == "exited"
+    assert p["exit_code"] == 1
+    assert "Updater FAILED" in p["logs"]
+
+
+def test_poll_updater_progress_removed():
+    def boom(*a, **k):
+        raise DOCKER_API.DockerApiError("gone")
+    DOCKER_API.request = boom
+    p = SELFUPDATE.poll_updater_progress("gone")
+    assert p["status"] == "removed"

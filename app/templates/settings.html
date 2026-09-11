@@ -520,6 +520,30 @@
                     <span class="text-secondary small ms-2">Picks up the latest code the next time the host watcher runs (see notes below).</span>
 
                     <hr>
+                    <h6 class="fw-bold"><i class="fas fa-sync text-primary me-1"></i>Self-update in the UI</h6>
+                    <p class="text-secondary small mb-2">
+                        Replaces this running container <strong>entirely from here</strong>, without a host-side
+                        watcher or cron: the app talks to the Docker Engine over the mounted socket, pulls the new
+                        image, pre-creates a replacement container, and launches a tiny updater sidecar that swaps
+                        them (stop → rename → start). Requires read-write access to the host Docker socket.
+                    </p>
+                    <div class="d-flex align-items-center mb-2" id="self-upd-cap">
+                        <span class="badge text-bg-secondary font-monospace me-1" id="self-upd-state-badge">checking…</span>
+                        <span class="text-secondary small" id="self-upd-cap-msg"></span>
+                    </div>
+                    <form method="post" id="self-upd-form" class="d-inline">
+                        <input type="hidden" name="action" value="system_selfupdate:request">
+                        <div class="input-group mb-2" style="max-width:520px;">
+                            <span class="input-group-text">Image</span>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="self_update_image"
+                                   id="self-upd-image" value="{{ self_update_info.image }}" placeholder="org/repo:tag">
+                        </div>
+                        <button type="button" class="btn btn-danger" id="self-upd-run"
+                                {% if not self_update_info.writable %}disabled{% endif %}>
+                            <i class="fas fa-cloud-arrow-alt me-1"></i>Replace this container (self-update)
+                        </button>
+                    </form>
+                    <hr>
                     <h6 class="fw-bold"><i class="fas fa-clock me-1"></i>Cron setup (apply from here)</h6>
                     <p class="text-secondary small mb-2">
                         Choose how often the host should check for updates. This writes your choice to the shared
@@ -670,6 +694,27 @@
     {% endfor %}
 {% endif %}
 
+<!-- Self-update progress modal -->
+<div class="modal fade" id="modal-sdcodex-selfupdate" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-cloud-arrow-alt text-danger me-2"></i>Self-update</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="su-steps" class="mb-3"></div>
+                <div class="mb-2"><strong class="small">Updater log</strong></div>
+                <pre class="border rounded p-2 bg-dark text-light small" style="max-height:260px;overflow:auto;" id="su-log"></pre>
+                <div class="text-secondary small" id="su-status"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     // Move modals to body to prevent stacking context bugs with .modal-backdrop
     document.addEventListener('DOMContentLoaded', () => {
@@ -693,6 +738,193 @@
             pathInput.addEventListener('input', applyPathEx);
             applyPathEx(); // apply current saved value (e.g. when page reloads)
         }
+
+        // -------------------------------------------------------------------
+        // In-UI self-update (Dockhand-style image swap)
+        // -------------------------------------------------------------------
+        (function () {
+            const capBadge = document.getElementById('self-upd-state-badge');
+            const capMsg = document.getElementById('self-upd-cap-msg');
+            const runBtn = document.getElementById('self-upd-run');
+            const imageInput = document.getElementById('self-upd-image');
+            const stepsEl = document.getElementById('su-steps');
+            const logEl = document.getElementById('su-log');
+            const statusEl = document.getElementById('su-status');
+            const modalId = 'modal-sdcodex-selfupdate';
+
+            const STEPS = [
+                { id: 'pulling_image', label: 'Pulling new image' },
+                { id: 'building_config', label: 'Building container config' },
+                { id: 'pulling_updater', label: 'Preparing updater' },
+                { id: 'creating_container', label: 'Creating new container' },
+                { id: 'launching_updater', label: 'Launching updater' },
+                { id: 'stopping', label: 'Stopping old container' },
+                { id: 'renaming', label: 'Swapping container' },
+                { id: 'starting', label: 'Starting updated container' }
+            ];
+
+            function resetSteps() {
+                stepsEl.innerHTML = STEPS.map(s =>
+                    `<div class="d-flex align-items-center mb-1"><span class="su-dot text-secondary me-2">&#9679;</span><span>${escapeHtml(s.label)}</span></div>`
+                ).join('');
+            }
+            function setStep(id, cls, dot) {
+                const dots = stepsEl.querySelectorAll('.su-dot');
+                STEPS.forEach((s, i) => {
+                    if (s.id === id) {
+                        dots[i].className = 'su-dot text-' + cls + ' me-2';
+                        dots[i].textContent = dot;
+                    }
+                });
+            }
+            function escapeHtml(s) {
+                const d = document.createElement('div');
+                d.textContent = String(s);
+                return d.innerHTML;
+            }
+            function appendLog(m) {
+                logEl.textContent += (m || '') + '\n';
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+            function setStatus(m) {
+                if (statusEl) statusEl.textContent = m || '';
+            }
+
+            async function loadCapability() {
+                try {
+                    const r = await fetch('/settings/self_update/info');
+                    if (!r.ok) throw new Error('bad status');
+                    const info = await r.json();
+                    if (info.writable) {
+                        capBadge.className = 'badge text-bg-success font-monospace me-1';
+                        capBadge.textContent = 'socket: rw';
+                        capMsg.textContent = 'Self-update available — ' + (info.container_name || 'this container');
+                    } else {
+                        capBadge.className = 'badge text-bg-danger font-monospace me-1';
+                        capBadge.textContent = 'socket: ' + (info.available ? 'ro' : 'missing');
+                        capMsg.textContent = info.reason || 'Self-update unavailable.';
+                    }
+                    if (runBtn) runBtn.disabled = !info.writable;
+                } catch (e) {
+                    capBadge.textContent = 'unreachable';
+                    capMsg.textContent = 'Could not check Docker access.';
+                }
+            }
+
+            async function runSelfUpdate() {
+                const image = imageInput ? imageInput.value.trim() : '';
+                resetSteps();
+                appendLog('Starting self-update' + (image ? ' for ' + image : '') + '…');
+                setStatus('Preparing…');
+                const modal = document.getElementById(modalId);
+                if (window.bootstrap && modal) {
+                    const m = new bootstrap.Modal(modal);
+                    m.show();
+                }
+                runBtn.disabled = true;
+                setStep('pulling_image', 'primary', '&#9899;');
+                try {
+                    const resp = await fetch('/settings/self_update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                        body: JSON.stringify({ newImage: image })
+                    });
+                    const ctype = resp.headers.get('content-type') || '';
+                    if (ctype.includes('application/json')) {
+                        const err = await resp.json();
+                        setStatus('Error: ' + (err.error || 'update failed'));
+                        runBtn.disabled = false;
+                        return;
+                    }
+                    if (!resp.body) { setStatus('No response body'); runBtn.disabled = false; return; }
+                    const reader = resp.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let updaterId = null;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+                        let evType = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) evType = line.substring(7).trim();
+                            else if (line.startsWith('data: ')) {
+                                let d = {};
+                                try { d = JSON.parse(line.substring(6)); } catch (e) {}
+                                if (evType === 'step') {
+                                    if (d.status === 'completed') setStep(d.step, 'success', '&#10003;');
+                                    else setStep(d.step, 'primary', '&#9899;');
+                                } else if (evType === 'log') {
+                                    appendLog(d.message);
+                                } else if (evType === 'launched') {
+                                    updaterId = d.updaterId;
+                                } else if (evType === 'error') {
+                                    setStatus('Error: ' + (d.message || 'update failed'));
+                                    runBtn.disabled = false;
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    if (updaterId) {
+                        setStatus('Updater launched — swapping container…');
+                        pollUpdater(updaterId);
+                    } else {
+                        setStatus('Finished (no updater launched).');
+                        runBtn.disabled = false;
+                    }
+                } catch (e) {
+                    setStatus('Connection lost: ' + e);
+                    runBtn.disabled = false;
+                }
+            }
+
+            async function pollUpdater(updaterId) {
+                let done = false;
+                while (!done) {
+                    try {
+                        const r = await fetch('/settings/self_update/progress?id=' + encodeURIComponent(updaterId));
+                        if (!r.ok) { setStatus('Lost updater connection.'); runBtn.disabled = false; return; }
+                        const p = await r.json();
+                        if (p.logs) { logEl.textContent = p.logs; logEl.scrollTop = logEl.scrollHeight; }
+                        if (p.status === 'removed') {
+                            setStep('starting', 'success', '&#10003;');
+                            setStatus('Update completed — the container has been replaced.');
+                            done = true;
+                        } else if (p.status === 'exited') {
+                            setStep('starting', p.exit_code === 0 ? 'success' : 'danger', p.exit_code === 0 ? '&#10003;' : '&#10007;');
+                            setStatus(p.exit_code === 0 ? 'Update completed.' : 'Updater exited with code ' + p.exit_code);
+                            done = true;
+                        } else {
+                            // running: light progress markers when the log flips phases
+                            updateProgressFromLog(p.logs || '');
+                        }
+                    } catch (e) {
+                        // ignore transient; keep polling
+                    }
+                    if (!done) await new Promise(res => setTimeout(res, 1500));
+                }
+                runBtn.disabled = false;
+            }
+
+            const LOG_PHASES = [
+                { m: 'Stopping container', step: 'stopping' },
+                { m: 'Container renamed', step: 'renaming' },
+                { m: 'Starting container', step: 'starting' }
+            ];
+            function updateProgressFromLog(logs) {
+                let hit = null;
+                for (const ph of LOG_PHASES) {
+                    if (logs.includes(ph.m)) hit = ph;
+                }
+                if (hit) setStep(hit.step, 'primary', '&#9899;');
+            }
+
+            if (runBtn) runBtn.addEventListener('click', runSelfUpdate);
+            if (capBadge) loadCapability();
+        })();
 
         // Tab preservation via URL hash and query param
         const hash = window.location.hash;

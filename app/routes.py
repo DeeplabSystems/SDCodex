@@ -17,9 +17,12 @@ from app.download_manager import download_manager
 from app.plugin_manager import plugin_manager
 from app import system_updates
 from app import system_cron
+from app import docker_api
+from app import docker_selfupdate
 from flask_paginate import Pagination, get_page_parameter
 import os
 import re
+import json
 
 main = Blueprint("main", __name__)
 
@@ -636,6 +639,19 @@ def settings():
                 flash(f"Cron apply request failed: {e}", "error")
             active_tab = "system-update"
 
+        elif action == "system_selfupdate:request":
+            # Start the in-UI self-update: pull the image, pre-create a
+            # replacement container, and hand off to the updater sidecar. Uses
+            # the Docker Engine API over the mounted socket (no host process).
+            try:
+                image = (request.form.get("self_update_image") or "").strip() or None
+                ok, message = _start_self_update(image)
+                flash(message, "success" if ok else "error")
+            except Exception as e:
+                current_app.logger.exception("Failed to start in-UI self-update")
+                flash(f"Self-update failed to start: {e}", "error")
+            active_tab = "system-update"
+
         return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
 
     # GET Request context
@@ -688,6 +704,7 @@ def settings():
 
     sys_update = system_updates.get_status()
     sys_cron = system_cron.get_config()
+    self_update_info = _self_update_info()
 
     return render_template(
         "settings.html",
@@ -705,6 +722,7 @@ def settings():
         store_url=plugin_manager.get_store_url(),
         sys_update=sys_update,
         sys_cron=sys_cron,
+        self_update_info=self_update_info,
         active_tab=active_tab,
     )
 
@@ -737,6 +755,90 @@ def update_status():
 @main.route("/settings/cron_status", methods=["GET"])
 def cron_status():
     return jsonify(system_cron.get_config())
+
+def _self_update_info():
+    """Capability summary for the self-update card (cheap, no swap)."""
+    uid = docker_api.get_own_container_id()
+    available = docker_api.available()
+    writable = docker_api.is_docker_writable(uid) if uid else None
+    info = {
+        "container_id": uid,
+        "container_name": docker_api.get_own_container_name(uid) if uid else None,
+        "available": bool(available),
+        "writable": bool(writable),
+        "image": os.environ.get("SDCODEX_IMAGE", docker_selfupdate._default_image()),
+        "updater_image": docker_selfupdate.UPDATER_IMAGE,
+        "reason": None,
+    }
+    if not uid:
+        info["reason"] = "Not running in Docker (cannot self-update)."
+    elif available is False:
+        info["reason"] = "Docker socket not reachable from the container."
+    elif writable is False:
+        info["reason"] = (
+            "Docker socket is mounted read-only. Self-update requires read-write "
+            "access to the host Docker socket (see README)."
+        )
+    elif writable is None:
+        info["reason"] = "Could not determine Docker socket write access."
+    return info
+
+def _start_self_update(image=None):
+    """Kick off the self-update preparation; returns (ok, message).
+
+    The actual replacement happens asynchronously: preparation runs in this
+    request and swaps on the host via the updater sidecar. We run a short
+    synchronous prep here and return the launched state (or raise on failure).
+    """
+    info = _self_update_info()
+    if not info["writable"]:
+        return False, "Cannot self-update: " + (info["reason"] or "socket not writable.")
+    gen = docker_selfupdate.self_update_generator(image)
+    last = None
+    for ev in gen:
+        # Drain preparation; the client uses the SSE endpoint for live progress.
+        last = ev
+    if last and last.get("event") == "launched":
+        return True, "Self-update launched: the updater sidecar is swapping your container."
+    if last and last.get("event") == "error":
+        return False, "Self-update failed: " + str(last["data"].get("message", ""))
+    return False, "Self-update did not launch (no response from the updater)."
+
+@main.route("/settings/self_update/info", methods=["GET"])
+def self_update_info():
+    return jsonify(_self_update_info())
+
+@main.route("/settings/self_update", methods=["POST"])
+def self_update():
+    """SSE stream for self-update preparation + launch.
+
+    Fail-fast JSON when the socket is missing/read-only; otherwise streams
+    ``step``/``log``/``launched``/``error`` events. Once ``launched`` is
+    received, poll ``/settings/self_update/progress?id=...`` for the swap.
+    """
+    info = _self_update_info()
+    if not info["writable"]:
+        return jsonify({"error": "Cannot self-update: " + (info["reason"] or "socket not writable.")}), 400
+
+    data = request.get_json(silent=True) or {}
+    image = (data.get("newImage") or "").strip() or None
+
+    from flask import Response, stream_with_context
+
+    def generate():
+        for ev in docker_selfupdate.self_update_generator(image):
+            event = ev.get("event")
+            payload = json.dumps(ev.get("data") or {})
+            yield f"event: {event}\ndata: {payload}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+@main.route("/settings/self_update/progress", methods=["GET"])
+def self_update_progress():
+    cid = request.args.get("id")
+    if not cid:
+        return jsonify({"error": "Container ID is required"}), 400
+    return jsonify(docker_selfupdate.poll_updater_progress(cid))
 
 @main.context_processor
 def inject_downloaded_models():

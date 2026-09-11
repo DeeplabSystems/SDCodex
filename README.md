@@ -93,6 +93,43 @@ The watcher runs `update.sh` (`git pull` + `docker compose up -d --build`) on
 the host whenever a request is pending, and records the outcome (and git
 commit) back into the state file so the web UI shows status/progress.
 
+### Self-update directly in the UI (optional Docker socket)
+
+If you mount the host Docker socket **read-write** into the `sdcodex`
+container, the **Settings &rarr; System &amp; Update** tab gains a
+**Self-update in the UI** card that can replace this very container entirely
+from the browser — no host watcher/cron/terminal needed:
+
+```yaml
+# docker-compose.yml → services.sdcodex.volumes (add this line):
+- /var/run/docker.sock:/var/run/docker.sock
+```
+
+With the socket mounted, the UI (via the Docker Engine API) can pull/build the
+new image, `docker create` a temporary replacement container from your
+current container's configuration, and launch a tiny **updater sidecar** image
+that swaps them:
+
+```
+stop old → rm old → rename new → reconnect networks → start new → verify
+```
+
+Because the sidecar is a separate container with its own Docker access,
+stopping the old container never interrupts the swap — the whole flow runs and
+reports live progress in the browser.
+
+The self-update card shows a capability badge (`socket: rw` / `socket: ro` /
+`socket: missing`) and the image tag it will pull (default
+`nakedzombie/sdcodex:latest`, overridable). If the socket is absent or mounted
+read-only the swap is disabled with a clear explanation.
+
+> **Security note:** mounting `docker.sock` grants code running in the container
+> the ability to manage containers/volumes on the host. It is **not required**
+> for normal use — only enable it if you want in-UI self-update, and keep it
+> read-only unless you are actively updating. The updater sidecar image can be
+> pulled (override `SDCODEX_UPDATER_IMAGE`) or built automatically from
+> `updater/` when the repo is bind-mounted.
+
 ### Easy cron setup (`scripts/setup_cron.sh`)
 
 Interactive helper that sets up the cron job for you:
