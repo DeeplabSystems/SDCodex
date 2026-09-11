@@ -24,6 +24,7 @@ from flask_paginate import Pagination, get_page_parameter
 import os
 import re
 import json
+import uuid
 
 main = Blueprint("main", __name__)
 
@@ -857,7 +858,7 @@ def serve_file(filename):
 _PUBLIC_ENDPOINTS = {
     "main.auth_login", "main.auth_login_post", "main.auth_logout",
     "main.oidc_initiate", "main.oidc_callback",
-    "main.static", "main.serve_file",
+    "main.static", "main.serve_file", "main.profile_avatar",
 }
 
 @main.before_app_request
@@ -951,6 +952,84 @@ def auth_logout():
     response = redirect(url_for("main.index"))
     auth.clear_session_cookie(response)
     return response
+
+# --------------------------------------------------------------------------- #
+# Profile (view / edit email, display name, profile image)
+# --------------------------------------------------------------------------- #
+
+_AVATAR_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+@main.route("/profile", methods=["GET", "POST"])
+def profile():
+    """View / edit the signed-in user's profile (email, display name, avatar)."""
+    user = _inject_auth_ctx()["user"]
+    if user is None:
+        flash("Please sign in to edit your profile.", "warning")
+        if auth.is_auth_enabled():
+            return redirect(url_for("main.auth_login", next="/profile"))
+        return redirect(url_for("main.index"))
+
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        display_name = (request.form.get("display_name") or "").strip() or user.username
+
+        # Authenticate the change with the current password (when the account
+        # is local and has a password set). OIDC-only accounts skip this check.
+        want_delete = request.form.get("remove_avatar") == "1"
+        password = request.form.get("password") or ""
+        if user.auth_provider.startswith("oidc"):
+            ok = True
+        elif user.password_hash:
+            ok = auth.verify_password(password, user.password_hash)
+            if not ok:
+                flash("Current password is incorrect.", "error")
+                return render_template("profile.html", profile_user=user)
+        else:
+            ok = True  # no password set yet (bootstrap-created)
+
+        if ok:
+            user.email = email
+            user.display_name = display_name
+            avatar_file = request.files.get("avatar")
+            if want_delete:
+                user.avatar = None
+            elif avatar_file and avatar_file.filename:
+                ext = avatar_file.filename.rsplit(".", 1)[-1].lower() if "." in avatar_file.filename else ""
+                if ext not in _AVATAR_EXTENSIONS:
+                    flash("Unsupported image type. Use PNG, JPG, GIF or WebP.", "error")
+                    return render_template("profile.html", profile_user=user)
+                root = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "static", "uploads", "avatars",
+                )
+                os.makedirs(root, exist_ok=True)
+                name = f"u{user.id}_{uuid.uuid4().hex[:12]}.{ext}"
+                avatar_file.save(os.path.join(root, name))
+                user.avatar = name
+            db.session.commit()
+            flash("Profile updated.", "success")
+        return redirect(url_for("main.profile"))
+
+    return render_template("profile.html", profile_user=user)
+
+
+@main.route("/profile/avatar/<int:user_id>")
+def profile_avatar(user_id):
+    """Serve a user's avatar image by id (public so it can be shown in header
+    and rendered in client-side markup)."""
+    from werkzeug.utils import safe_join
+    user = db.session.get(User, user_id)
+    if not user or not user.avatar:
+        return "", 404
+    root = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "static", "uploads", "avatars",
+    )
+    path = safe_join(root, user.avatar)
+    if not path or not os.path.exists(path):
+        return "", 404
+    return send_file(path)
+
 
 @main.route("/auth/oidc/<int:config_id>/initiate", methods=["GET"])
 def oidc_initiate(config_id):

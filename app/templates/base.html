@@ -80,9 +80,6 @@
 
                 </ul>
                 <div class="d-flex align-items-center">
-                    <button id="theme-toggle" class="btn btn-link nav-icon me-2" title="Toggle Theme">
-                        <i class="fas fa-moon"></i>
-                    </button>
                     {% if header_updates and header_updates.total and header_updates.total > 0 %}
                     {% set core_u = header_updates.core %}
                     {% set plug_ups = header_updates.plugins %}
@@ -99,24 +96,49 @@
                         <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.65rem;">{{ header_updates.total }}</span>
                     </a>
                     {% endif %}
-                    <a href="{{ url_for('main.settings', tab='plugins') if (plugin_updates_count and plugin_updates_count > 0) else url_for('main.settings') }}" class="nav-icon me-3 position-relative" title="Settings">
-                        <i class="fas fa-cog fa-lg"></i>
-                    </a>
-                    {% if auth_context and auth_context.auth_enabled %}
-                        {% if auth_context.authenticated and auth_context.user %}
-                        <span class="me-2 text-secondary small d-none d-md-inline">
-                            <i class="fas fa-user-circle me-1"></i>{{ auth_context.user.username }}
-                        </span>
-                        <a href="{{ url_for('main.auth_logout') }}" class="nav-icon me-2" title="Sign out" onclick="event.preventDefault();document.getElementById('sdcodex-logout-form').submit();">
-                            <i class="fas fa-sign-out-alt fa-lg"></i>
-                        </a>
-                        <form id="sdcodex-logout-form" method="post" action="{{ url_for('main.auth_logout') }}" class="d-none"></form>
-                        {% else %}
-                        <a href="{{ url_for('main.auth_login') }}" class="nav-icon me-2" title="Sign in">
-                            <i class="fas fa-sign-in-alt fa-lg"></i>
-                        </a>
-                        {% endif %}
-                    {% endif %}
+                    <!-- Account dropdown: Profile / Themes / Settings -->
+                    <div class="dropdown ms-2" id="account-dropdown">
+                        <button class="btn btn-link nav-icon dropdown-toggle p-0" type="button"
+                                data-bs-toggle="dropdown" aria-expanded="false" title="Account & settings">
+                            {% if auth_context and auth_context.authenticated and auth_context.user and auth_context.user.avatar %}
+                            <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
+                                 alt="Profile picture" class="rounded-circle" width="32" height="32" style="object-fit:cover;">
+                            {% else %}
+                            <i class="fas fa-user-circle fa-lg"></i>
+                            {% endif %}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                            {% if auth_context and auth_context.authenticated and auth_context.user %}
+                            <li><h6 class="dropdown-header">{{ auth_context.user.display_name or auth_context.user.username }}</h6></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.profile') }}"><i class="fas fa-user-cog me-2"></i>Profile</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li><h6 class="dropdown-header"><i class="fas fa-palette me-2"></i>Theme</h6></li>
+                            <li>
+                                <a class="dropdown-item theme-option" href="#" data-theme-choice="light">
+                                    <i class="fas fa-sun me-2"></i>Light&nbsp;<span class="theme-check" style="display:none;"><i class="fas fa-check ms-2 text-success"></i></span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item theme-option" href="#" data-theme-choice="dark">
+                                    <i class="fas fa-moon me-2"></i>Dark&nbsp;<span class="theme-check" style="display:none;"><i class="fas fa-check ms-2 text-success"></i></span>
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.settings') }}"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                            {% if auth_context and auth_context.auth_enabled %}
+                            <li><hr class="dropdown-divider"></li>
+                            {% if auth_context.authenticated and auth_context.user %}
+                            <li>
+                                <a class="dropdown-item" href="#" onclick="event.preventDefault();document.getElementById('sdcodex-logout-form').submit();"><i class="fas fa-sign-out-alt me-2"></i>Sign out</a>
+                            </li>
+                            <li><form id="sdcodex-logout-form" method="post" action="{{ url_for('main.auth_logout') }}" class="d-none"></form></li>
+                            {% else %}
+                            <li><a class="dropdown-item" href="{{ url_for('main.auth_login') }}"><i class="fas fa-sign-in-alt me-2"></i>Sign in</a></li>
+                            {% endif %}
+                            {% endif %}
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
@@ -199,33 +221,28 @@
         setInterval(checkDownloadStatus, 1000);
     </script>
     <script>
-        document.getElementById('theme-toggle').addEventListener('click', function () {
-            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-
-            document.documentElement.setAttribute('data-theme', newTheme);
-            document.documentElement.setAttribute('data-bs-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-
-            const icon = this.querySelector('i');
-            if (newTheme === 'dark') {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
-            }
-        });
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            try { localStorage.setItem('theme', theme); } catch (e) {}
+            const opts = document.querySelectorAll('.theme-option');
+            opts.forEach(function (el) {
+                const check = el.querySelector('.theme-check');
+                if (check) check.style.display = (el.getAttribute('data-theme-choice') === theme) ? 'inline' : 'none';
+            });
+        }
 
         (function () {
-            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-            document.documentElement.setAttribute('data-bs-theme', currentTheme);
-            const icon = document.querySelector('#theme-toggle i');
-            if (currentTheme === 'dark') {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-            }
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            applyTheme(savedTheme);
         })();
+
+        document.querySelectorAll('.theme-option').forEach(function (el) {
+            el.addEventListener('click', function (e) {
+                e.preventDefault();
+                applyTheme(el.getAttribute('data-theme-choice'));
+            });
+        });
     </script>
     {% block scripts %}{% endblock %}
 </body>

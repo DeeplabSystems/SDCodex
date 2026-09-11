@@ -67,3 +67,6 @@ theme-template/globals.css
 theme-template/tailwind.config.js
 theme-template/theme-provider.tsx
 theme-template/theme-toggle.tsx
+
+# User-uploaded content (avatars, etc.)
+app/static/uploads/

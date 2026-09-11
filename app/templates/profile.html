@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Profile - SD Codex{% endblock %}
+
+{% block content %}
+<div class="container mb-5">
+    <div class="mb-4">
+        <h1 class="h2"><i class="fas fa-user-circle text-primary me-2"></i>Your Profile</h1>
+        <p class="text-secondary mb-0">Edit your email, display name, and profile picture</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show mb-4 shadow-sm" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <!-- Avatar preview -->
+        <div class="col-md-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body text-center">
+                    <div class="position-relative mx-auto" style="width: 120px; height: 120px;">
+                        {% if profile_user.avatar %}
+                        <img src="{{ url_for('main.profile_avatar', user_id=profile_user.id) }}?t={{ profile_user.avatar }}" 
+                             alt="Profile picture" class="rounded-circle img-thumbnail w-100 h-100 object-fit-cover">
+                        {% else %}
+                        <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center" style="width: 120px; height: 120px; font-size: 3rem;">
+                            <i class="fas fa-user-circle"></i>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <h5 class="mt-3 mb-0">{{ profile_user.display_name or profile_user.username }}</h5>
+                    <small class="text-secondary d-block">@{{ profile_user.username }}</small>
+                    {% if profile_user.auth_provider != 'local' %}
+                    <span class="badge bg-info text-dark mt-2">Sign-in: {{ profile_user.auth_provider }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit form -->
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-transparent"><i class="fas fa-edit me-2"></i>Edit details</div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email" name="email"
+                                   value="{{ profile_user.email or '' }}" placeholder="you@example.com">
+                        </div>
+                        <div class="mb-3">
+                            <label for="display_name" class="form-label">Display name</label>
+                            <input type="text" class="form-control" id="display_name" name="display_name"
+                                   value="{{ profile_user.display_name or '' }}" placeholder="{{ profile_user.username }}">
+                            <div class="form-text">Shown in the header in place of your username.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="avatar" class="form-label">Profile image</label>
+                            <input type="file" class="form-control" id="avatar" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp">
+                            <div class="form-text">PNG, JPG, GIF or WebP. Leave blank to keep the current one.</div>
+                        </div>
+                        {% if profile_user.avatar %}
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="remove_avatar" name="remove_avatar" value="1">
+                            <label class="form-check-label" for="remove_avatar">Remove current profile image</label>
+                        </div>
+                        {% endif %}
+                        {% if profile_user.password_hash and profile_user.auth_provider == 'local' %}
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Current password</label>
+                            <input type="password" class="form-control" id="password" name="password" autocomplete="current-password">
+                            <div class="form-text">Required to save changes to this account.</div>
+                        </div>
+                        {% endif %}
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Save changes</button>
+                        <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
