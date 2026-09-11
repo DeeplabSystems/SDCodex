@@ -4,3 +4,28 @@
 # It is NOT pulled by app self-updates: `git pull` treats it as frozen so your
 # installed plugin deps are preserved. Both this file and requirements.txt are
 # pip-installed at image build time.
+
+# [gallery-dl]
+gallery-dl
+yt-dlp
+croniter
+apscheduler
+
+# [rembg]
+transformers>=4.39.1,<4.50.0
+loadimg>=0.1.1
+timm
+kornia
+scikit-image
+opencv-python
+numpy==1.26.4
+prettytable
+devicetorch
+
+# [comfy-caption]
+sd-prompt-reader
+piexif
+openai
+
+# [gallery]
+pillow-heif

@@ -104,7 +104,7 @@
                                 data-bs-toggle="dropdown" aria-expanded="false" title="Account & settings">
                             {% if auth_context and auth_context.authenticated and auth_context.user and auth_context.user.avatar %}
                             <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
-                                 alt="Profile picture" class="rounded-circle" width="32" height="32" style="object-fit:cover;">
+                                 alt="Profile picture" class="rounded-circle" width="32" height="32" style="object-fit:cover; border:2px solid var(--bs-border-color);">
                             {% else %}
                             <i class="fas fa-user-circle fa-lg"></i>
                             {% endif %}
@@ -114,7 +114,7 @@
                             <li class="d-flex align-items-center dropdown-header py-2">
                                 {% if auth_context.user.avatar %}
                                 <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
-                                     alt="Profile picture" class="rounded-circle me-2" width="32" height="32" style="object-fit:cover;">
+                                     alt="Profile picture" class="rounded-circle me-2" width="32" height="32" style="object-fit:cover; border:2px solid var(--bs-border-color);">
                                 {% else %}
                                 <i class="fas fa-user-circle fa-lg me-2"></i>
                                 {% endif %}
@@ -283,18 +283,31 @@
 
                 var id = 'flash-' + Math.random().toString(36).slice(2, 8);
                 var toast = document.createElement('div');
-                toast.className = 'toast align-items-center text-bg-light border-0';
+                toast.className = 'toast align-items-center border-0';
                 toast.id = id;
                 toast.setAttribute('role', 'alert');
                 toast.style.minWidth = '280px';
                 // Auto-dismiss after ~5s.
                 toast.setAttribute('data-bs-autohide', 'true');
                 toast.setAttribute('data-bs-delay', '5000');
+
+                // Theme-aware surface: dark or light background, plus a colored
+                // left accent bar and a soft type-tint overlay (colored by the
+                // message category). Uses CSS vars so it adapts to data-bs-theme.
+                var isDark = (document.documentElement.getAttribute('data-bs-theme') || 'light') === 'dark';
+                var surface = isDark ? 'var(--bs-body-bg)' : 'rgba(255,255,255,0.96)';
+                var textColor = isDark ? '#e6e6e6' : '#1f2937';
+                // Build a translucent tint of the type color (overlay).
+                var tint = 'color-mix(in srgb, ' + style.color + ' 14%, transparent)';
+                toast.style.background = surface;
+                toast.style.borderLeft = '5px solid ' + style.color;
+                toast.style.color = textColor;
+
                 toast.innerHTML =
                     '<div class="d-flex">' +
-                        '<div class="toast-body d-flex align-items-center">' +
+                        '<div class="toast-body d-flex align-items-center" style="background:' + tint + ';">' +
                             '<i class="fas ' + style.icon + ' me-2" style="color:' + style.color + ';"></i>' +
-                            '<span>' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                            '<span style="color:' + textColor + ';">' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
                         '</div>' +
                         '<button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
                     '</div>';
