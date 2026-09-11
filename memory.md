@@ -304,3 +304,45 @@ source into BOTH `/home/naked/workspace/deeplabs/SDCodex/plugins/<id>/` and
 `git checkout -- app/static/css/style.css` (if pull aborts on local changes)
 before pulling core into `ai/SDCodex`, then HUP the current gunicorn master
 (resolve PID via `ps` — it churns on every HUP).
+
+---
+
+## Repo architecture, self-update, and requirements split (memory)
+
+### Repo map (all public, under `https://github.com/DeeplabSystems`)
+| Repo | Local home (inside core clone's `plugins/`) |
+|---|---|
+| **SDCodex** (core) | authoring `/home/naked/workspace/deeplabs/SDCodex`; deploy/live `/home/naked/ai/SDCodex` — origin both `git@github.com:DeeplabSystems/SDCodex.git` |
+| **SDCodex-Gallery** | `plugins/gallery` → `https://github.com/DeeplabSystems/SDCodex-Gallery` |
+| **SDCodex-GalleryDL** | `plugins/gallery-dl` → `https://github.com/DeeplabSystems/SDCodex-GalleryDL` |
+| **SDCodex-ComfyCaption** | `plugins/comfy-caption` → `https://github.com/DeeplabSystems/SDCodex-ComfyCaption` |
+| **SDCodex-RemBG** | `plugins/rembg` → `https://github.com/DeeplabSystems/SDCodex-RemBG` |
+| **SDCodex-Plugin-Store** | store repo; no local plugin clone |
+
+Key facts:
+- `plugins/` is **gitignored from core** (`plugins/.gitignore` = `*` + `!.gitignore`), so each `plugins/<id>` is its **own standalone repo**.
+- The core repo's `.git` only tracks core; plugin dirs must have their OWN `.git` + `origin` or `git -C plugins/<id>` walks UP to core's git (falsely appearing to "inherit" core).
+
+### Self-update / deployment model (current)
+- **Whole repo is bind-mounted** `./:/app` (rw) in `docker-compose.yml`, replacing the old per-file mounts (app, run.py, Dockerfile, plugins, override, .env, requirements). Keep `${DB:-./db}:/data/db`, `${MODELS...}:/app/app/static/downloads`, `./entrypoint.sh:/entrypoint.sh:ro`, and the Docker socket.
+- **In-UI self-update** (Settings → Plugins & Updates → Core App Update) now does:
+  1. `_git_pull_app()` — `git fetch <https-url> <branch>` + `merge --ff-only FETCH_HEAD` on `/app`. `_https_fetch_url()` rewrites an SSH `origin` (`git@github.com:...`, `ssh://`, `git://`) → `https://` because the container has **no ssh client/keys** (repos are public, so HTTPS fetch works). The stored `origin` is NOT changed → operator keeps pushing over SSH from the host.
+  2. Freezes per-user files first via `git update-index --skip-worktree`: `_DYNAMIC_APP_FILES = ("plugin-requirements.txt", "docker-compose.override.yml", ".env")`.
+  3. `_build_sdcodex_image(tag)` — builds `sdcodex-selfupdate:sdupdate-<ts>` from the container's live `/app` via the Docker `/build` API (`_tar_app_context` bakes `requirements.txt` + `plugin-requirements.txt` + app while excluding `.env`, `.git`, `plugins`, `downloads`, `uploads`, etc.).
+  - Only **pulls** a remote image when the operator types a *different* image into the field; default/empty = build.
+- **Docker socket access**: the app drops to `PUID:PGID` (1000) which is NOT in the socket's `docker` group, so `/var/run/docker.sock` connect() is denied → badge showed "socket: missing". `entrypoint.sh` now best-effort `chmod 666 /var/run/docker.sock` at start (and `chmod o+rx /var/run`). Immediate fix without restart: `docker exec sdcodex chmod 666 /var/run/docker.sock`.
+
+### Requirements split (core vs plugin)
+- `requirements.txt` = **core only**, tracked → flows through git pulls.
+- `plugin-requirements.txt` = **per-user plugin deps**, written by Settings → Plugins; `--skip-worktree` during self-update so pulls never clobber it, but it IS baked at image build + installed at boot (entrypoint installs both).
+- Build/entrypoint run `pip install -r requirements.txt -r plugin-requirements.txt` (guarded if plugin file absent). Dockerfile `COPY requirements.txt plugin-requirements.txt ./`.
+- `plugin_manager._update/_remove_requirements_file` now operate on `plugin-requirements.txt` (not `requirements.txt`).
+- **One-time migration** `_migrate_plugin_requirements()` runs at `init_app` startup: moves legacy `# [plugin-id]` blocks out of `requirements.txt` into `plugin-requirements.txt`, idempotent.
+
+### Plugin-repo migration (DONE this session)
+- `gallery` (authoring + deploy) and `gallery-dl` (deploy) were **loose** (no `.git`) → treated-as-core trap. Fixed: `git init -b main`, `git remote add origin <correct https url>`, `git fetch origin main`, and a **snapshot baseline commit** capturing the deployed state (clean tree).
+- **Deliberately did NOT rebase** across upstream-only commits (`gallery`: 20 ahead; `gallery-dl`: 11 ahead of origin/main) — that would change the running plugin version/behavior. To sync later: rebase each on origin/main in the authoring clone first, then deploy, then recreate the container.
+- Watch out: a shell substr `${pair##*:}` mangles `https://` → `//github.com`; use `set-url` with the full literal URL when rewiring remotes.
+
+### Deploy gotchas (existing memory#deployment)
+- After editing plugin repos, sync source into BOTH clones' `plugins/<id>/`, clear plugin `__pycache__`, `git checkout -- app/static/css/style.css` if a pull aborts on local changes, then git-pull core into `ai/SDCodex` and HUP the gunicorn master.
