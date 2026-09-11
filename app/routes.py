@@ -910,6 +910,7 @@ def auth_login():
         "login.html",
         providers=providers,
         auth_enabled=auth.is_auth_enabled(),
+        first_run=(User.query.first() is None),
         next_url=request.args.get("next") or "/",
     )
 
@@ -920,6 +921,38 @@ def _auth_login_post():
     from urllib.parse import urlparse
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/"
+
+    first_run = (User.query.first() is None)
+
+    # First run: no accounts exist yet — this form CREATES the first (admin)
+    # account instead of signing in.
+    if first_run:
+        if not username or not password:
+            flash("Choose a username and password for your first (admin) account.", "error")
+        elif len(password) < 4:
+            flash("Password must be at least 4 characters.", "error")
+        else:
+            user = User(
+                username=username, password_hash=auth.hash_password(password),
+                is_active=True, is_admin=True, auth_provider="local",
+            )
+            db.session.add(user)
+            try:
+                db.session.commit()
+                auth.clear_failures(f"{request.remote_addr or 'unknown'}:{username}")
+                token = auth.create_session(user.id, provider="local")
+                response = redirect(next_url)
+                auth.set_session_cookie(response, token)
+                flash(f"Admin account '{username}' created — you're signed in.", "success")
+                return response
+            except Exception:
+                db.session.rollback()
+                flash("That username is already taken.", "error")
+        return render_template(
+            "login.html", providers=oidc_mod.enabled_configs(),
+            auth_enabled=auth.is_auth_enabled(),
+            first_run=(User.query.first() is None), next_url=next_url,
+        )
 
     client_ip = request.remote_addr or "unknown"
     rate_key = f"{client_ip}:{username}"
@@ -1124,7 +1157,9 @@ def _auth_settings_actions(action):
             return True
         user = User(
             username=username, password_hash=auth.hash_password(password),
-            is_active=True, is_admin=(request.form.get("is_admin") == "1"),
+            is_active=True,
+            # The very first account is always an admin (bootstrap).
+            is_admin=(User.query.first() is None) or (request.form.get("is_admin") == "1"),
             auth_provider="local",
         )
         db.session.add(user); db.session.commit()
