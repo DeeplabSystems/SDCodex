@@ -16,6 +16,7 @@ from app.models import Setting, Download, PluginRepo
 from app.download_manager import download_manager
 from app.plugin_manager import plugin_manager
 from app import system_updates
+from app import system_cron
 from flask_paginate import Pagination, get_page_parameter
 import os
 import re
@@ -612,6 +613,28 @@ def settings():
                 flash(f"Update request failed: {e}", "error")
             active_tab = "system-update"
 
+        elif action == "system_cron:apply":
+            # Record a cron frequency request; the host-side cron agent applies
+            # it (the container cannot edit the host crontab).
+            try:
+                minutes_s = (request.form.get("schedule_minutes") or "").strip()
+                schedule = (request.form.get("schedule") or "").strip()
+                minutes = 5
+                if minutes_s:
+                    try:
+                        minutes = int(minutes_s)
+                    except (TypeError, ValueError):
+                        minutes = 0
+                ok, msg, cfg = system_cron.request_apply(
+                    minutes, schedule,
+                    request.form.get("requested_by", "web"),
+                )
+                flash(msg, "success" if ok else "error")
+            except Exception as e:
+                current_app.logger.exception("Failed to record cron apply request")
+                flash(f"Cron apply request failed: {e}", "error")
+            active_tab = "system-update"
+
         return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
 
     # GET Request context
@@ -663,6 +686,7 @@ def settings():
     }
 
     sys_update = system_updates.get_status()
+    sys_cron = system_cron.get_config()
 
     return render_template(
         "settings.html",
@@ -679,6 +703,7 @@ def settings():
         store_info=store_info,
         store_url=plugin_manager.get_store_url(),
         sys_update=sys_update,
+        sys_cron=sys_cron,
         active_tab=active_tab,
     )
 
@@ -707,6 +732,10 @@ def scan_library():
 @main.route("/settings/update_status", methods=["GET"])
 def update_status():
     return jsonify(system_updates.get_status())
+
+@main.route("/settings/cron_status", methods=["GET"])
+def cron_status():
+    return jsonify(system_cron.get_config())
 
 @main.context_processor
 def inject_downloaded_models():

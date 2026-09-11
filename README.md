@@ -106,6 +106,19 @@ path is appended automatically), asks how often to check for updates (minutes,
 or a raw cron expression), and installs an idempotent cron entry. Run it as the
 user whose Docker + repo access matches how you run `update.sh`.
 
+### Cron setup from the web UI ("System & Update" tab)
+
+The **Settings &rarr; System &amp; Update** tab also has a **Cron setup** card:
+choose a frequency (minutes, or a raw cron expression) and click **Save &amp;
+Apply on Host**. The web app runs inside the container and can't edit your host
+crontab, so a small **host-side agent** applies it. Start it once (it only needs
+the frequency from the UI — it auto-detects the install dir):
+
+```bash
+scripts/ui-cron-agent.sh --watch     # apply requested frequencies automatically
+scripts/ui-cron-agent.sh --once      # check-and-apply once (cron-friendly)
+```
+
 ---
 
 ## 🛠️ Plugin Development
