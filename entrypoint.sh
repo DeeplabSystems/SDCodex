@@ -90,6 +90,15 @@ if [ "$(id -u)" = "0" ]; then
         [ -f /app/docker-compose.yml ] && chown "$PUID:$PGID" /app/docker-compose.yml 2>/dev/null || true
         [ -f /app/.env ] && chown "$PUID:$PGID" /app/.env 2>/dev/null || true
 
+        # Make the mounted Docker socket reachable by the (dropped) runtime user so
+        # the in-UI self-update can talk to the daemon. A bind-mounted socket is a
+        # root:docker 660 inode; the app runs as PUID:PGID which usually is not in
+        # the docker group, so connect() is denied unless we relax it. Best-effort.
+        if [ -S /var/run/docker.sock ] && [ "$PUID" != "0" ]; then
+            chmod 666 /var/run/docker.sock 2>/dev/null || true
+            chmod o+rx /var/run 2>/dev/null || true
+        fi
+
         # Default command if none provided
         if [ $# -eq 0 ]; then
             set -- gunicorn --bind 0.0.0.0:"${PORT:-5001}" --workers 1 --threads 8 --timeout 0 run:app
