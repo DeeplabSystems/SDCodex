@@ -24,6 +24,8 @@
 </head>
 
 <body>
+    <!-- Floating flash-message toasts (moved here from inline alerts by JS in the scripts block) -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="flash-toast-container" style="z-index: 2000;"></div>
     {% block navbar %}<nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
@@ -252,6 +254,64 @@
                 applyTheme(el.getAttribute('data-theme-choice'));
             });
         });
+    </script>
+    <script>
+        // Floating flash messages: lift any rendered inline alert (role="alert")
+        // into a fixed top-right toast and auto-fade it after a few seconds.
+        (function () {
+            var container = document.getElementById('flash-toast-container');
+            if (!container) return;
+            var alerts = Array.prototype.slice.call(document.querySelectorAll('div[role="alert"]'));
+            var CATEGORY_STYLE = {
+                'alert-success': { icon: 'fa-circle-check', color: 'var(--bs-success)' },
+                'alert-info':    { icon: 'fa-circle-info',  color: 'var(--bs-info)' },
+                'alert-warning': { icon: 'fa-triangle-exclamation', color: 'var(--bs-warning)' },
+                'alert-danger':  { icon: 'fa-triangle-exclamation', color: 'var(--bs-danger)' },
+                'alert-error':   { icon: 'fa-triangle-exclamation', color: 'var(--bs-danger)' }
+            };
+            alerts.forEach(function (alertEl) {
+                // Pull the close button's sibling text (the message).
+                var closeBtn = alertEl.querySelector('.btn-close');
+                var msgEl = closeBtn ? closeBtn.previousElementSibling : null;
+                var message = (msgEl ? msgEl.textContent : alertEl.textContent).trim();
+                if (!message) return;
+
+                var style = CATEGORY_STYLE['alert-success'];
+                for (var cls in CATEGORY_STYLE) {
+                    if (alertEl.classList.contains(cls)) { style = CATEGORY_STYLE[cls]; break; }
+                }
+
+                var id = 'flash-' + Math.random().toString(36).slice(2, 8);
+                var toast = document.createElement('div');
+                toast.className = 'toast align-items-center text-bg-light border-0';
+                toast.id = id;
+                toast.setAttribute('role', 'alert');
+                toast.style.minWidth = '280px';
+                // Auto-dismiss after ~5s.
+                toast.setAttribute('data-bs-autohide', 'true');
+                toast.setAttribute('data-bs-delay', '5000');
+                toast.innerHTML =
+                    '<div class="d-flex">' +
+                        '<div class="toast-body d-flex align-items-center">' +
+                            '<i class="fas ' + style.icon + ' me-2" style="color:' + style.color + ';"></i>' +
+                            '<span>' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                        '</div>' +
+                        '<button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
+                    '</div>';
+                container.appendChild(toast);
+
+                if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+                    var t = new bootstrap.Toast(toast);
+                    t.show();
+                } else {
+                    toast.style.display = 'block';
+                    setTimeout(function () { toast.classList.add('fade'); setTimeout(function () { toast.remove(); }, 600); }, 5000);
+                }
+
+                // Remove the original inline alert now that it's been floated.
+                if (alertEl && alertEl.parentNode) alertEl.remove();
+            });
+        })();
     </script>
     {% block scripts %}{% endblock %}
 </body>
