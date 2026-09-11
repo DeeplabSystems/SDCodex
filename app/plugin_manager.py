@@ -1113,18 +1113,24 @@ class PluginManager:
         return True
 
     def _update_requirements_file(self, root_dir, plugin_id, plugin_req_path):
-        """Appends new requirements from plugin to root requirements.txt if not already present."""
+        """Appends new requirements from plugin to root plugin-requirements.txt
+        if not already present.
+
+        Per-user plugin deps live in ``plugin-requirements.txt`` (tracked-ignored
+        by git during self-updates), separate from the core ``requirements.txt``
+        which flows through every upstream pull.
+        """
         if not os.path.exists(plugin_req_path):
             return
 
-        req_file = os.path.join(root_dir, "requirements.txt")
+        req_file = os.path.join(root_dir, "plugin-requirements.txt")
         existing_lines = []
         if os.path.exists(req_file) and not os.path.isdir(req_file):
             try:
                 with open(req_file, "r", encoding="utf-8") as f:
                     existing_lines = f.readlines()
             except Exception as e:
-                logger.error(f"Error reading root requirements.txt: {e}")
+                logger.error(f"Error reading plugin-requirements.txt: {e}")
 
         # Extract normalized existing package names
         existing_pkgs = set()
@@ -1164,13 +1170,13 @@ class PluginManager:
         try:
             with open(req_file, "w", encoding="utf-8") as f:
                 f.write(content)
-            logger.info(f"Updated requirements.txt with {len(new_reqs)} new package(s) for '{plugin_id}'.")
+            logger.info(f"Updated plugin-requirements.txt with {len(new_reqs)} new package(s) for '{plugin_id}'.")
         except Exception as e:
-            logger.error(f"Error writing requirements.txt: {e}")
+            logger.error(f"Error writing plugin-requirements.txt: {e}")
 
     def _remove_requirements_from_file(self, root_dir, plugin_id):
-        """Removes the plugin's requirement section from root requirements.txt."""
-        req_file = os.path.join(root_dir, "requirements.txt")
+        """Removes the plugin's requirement section from plugin-requirements.txt."""
+        req_file = os.path.join(root_dir, "plugin-requirements.txt")
         if not os.path.exists(req_file) or os.path.isdir(req_file):
             return
 

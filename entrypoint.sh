@@ -13,9 +13,14 @@ umask "$UMASK"
 # without requiring an image rebuild. Best effort: if install fails, continue
 # so the app can still start (the affected plugin will simply report a load error).
 if [ -f /app/requirements.txt ] && [ "$(id -u)" = "0" ]; then
-    echo "[entrypoint] Installing/updating Python dependencies from /app/requirements.txt ..."
-    python -m pip install --no-cache-dir -r /app/requirements.txt \
-        || echo "[entrypoint] WARNING: pip install failed (will continue without updated deps)"
+    echo "[entrypoint] Installing/updating Python dependencies from /app/requirements.txt (+ plugin-requirements.txt if present) ..."
+    if [ -f /app/plugin-requirements.txt ]; then
+        python -m pip install --no-cache-dir -r /app/requirements.txt -r /app/plugin-requirements.txt \
+            || echo "[entrypoint] WARNING: pip install failed (will continue without updated deps)"
+    else
+        python -m pip install --no-cache-dir -r /app/requirements.txt \
+            || echo "[entrypoint] WARNING: pip install failed (will continue without updated deps)"
+    fi
 fi
 
 # If running as root, prepare user, groups, directory permissions, and drop privileges

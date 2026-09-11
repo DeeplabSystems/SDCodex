@@ -36,8 +36,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps first (layer cache: only reinstall when requirements change).
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY requirements.txt plugin-requirements.txt ./
+RUN if [ -f plugin-requirements.txt ]; then \
+        pip install --no-cache-dir -r requirements.txt -r plugin-requirements.txt; \
+    else \
+        pip install --no-cache-dir -r requirements.txt; \
+    fi \
     && pip install --no-cache-dir gunicorn gallery-dl yt-dlp
 
 # Application code

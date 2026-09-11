@@ -114,7 +114,7 @@ def _build_sdcodex_image(repo_tag, app_root="/app"):
 # Files that plugin installs re-write per-user and that a git pull must never
 # clobber. Marked --skip-worktree so git treats them as frozen (pull leaves the
 # local plugin-modified content alone, and upstream edits to them are ignored).
-_DYNAMIC_APP_FILES = ("docker-compose.override.yml", "requirements.txt", ".env")
+_DYNAMIC_APP_FILES = ("plugin-requirements.txt", "docker-compose.override.yml", ".env")
 
 
 def _git_pull_app(app_root="/app"):
