@@ -156,6 +156,44 @@ scripts/ui-cron-agent.sh --watch     # apply requested frequencies automatically
 scripts/ui-cron-agent.sh --once      # check-and-apply once (cron-friendly)
 ```
 
+## 🔐 Users & SSO (local auth + OpenID Connect)
+
+By default **authentication is off** — anyone who can reach the web UI can use it
+(you just set a Civitai API key). If you'd like to gate the app behind a sign-in,
+the **Settings &rarr; Users &amp; SSO** tab lets you:
+
+* **Enable authentication** (a toggle). Until at least one user exists the app
+  stays open ("bootstrap mode") so you can't lock yourself out.
+* **Local users** — create username/password accounts. Passwords are hashed with
+  scrypt (constant-time). Logging in issues an httpOnly session cookie
+  (`sameSite=lax`, `Secure` only behind an HTTPS reverse proxy); the Civitai API
+  key becomes a per-user setting rather than the login credential.
+* **Single sign-on via OIDC** — add one or more OpenID Connect providers
+  (Keycloak, Authelia, Authentik, Azure AD, Google…):
+
+  | Field | Meaning |
+  |---|---|
+  | Issuer URL | e.g. `https://idp.example.com/realms/app` |
+  | Redirect URI | `https://sdcodex.example.com/auth/oidc/callback` — register this at your IdP |
+  | Scopes | `openid profile email` (default) |
+  | Username / email / display name claim | which ID-token/userinfo claims map to a user |
+  | Admin claim + value(s) | a group/role claim whose value(s) grant admin automatically |
+
+  The login page shows one button per enabled provider. The flow uses **PKCE
+  (S256) + state + nonce**; the code is exchanged server-side with the stored
+  verifier, and the userinfo endpoint is merged into the ID-token claims. A
+  successful SSO signs in (or first-time signs up) a local user linked to that
+  provider.
+
+### Cookie security
+
+Session cookies default to `sameSite=Lax` (required for OIDC redirects) and are
+not marked `Secure` on plain HTTP so homelab installs don't silently drop them.
+If you're behind an HTTPS reverse proxy that sets `X-Forwarded-Proto: https`,
+cookies become `Secure` automatically; you can force the behavior with the
+`SDCODEX_COOKIE_SECURE` env var (`true`/`false`). Session length defaults to 24h
+(`SDCODEX_SESSION_TIMEOUT` seconds).
+
 ---
 
 ## 🛠️ Plugin Development

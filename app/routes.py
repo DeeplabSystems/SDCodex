@@ -19,6 +19,9 @@ from app import system_updates
 from app import system_cron
 from app import docker_api
 from app import docker_selfupdate
+from app import auth
+from app import oidc as oidc_mod
+from app.models import Setting, Download, PluginRepo, User, OidcConfig
 from flask_paginate import Pagination, get_page_parameter
 import os
 import re
@@ -417,12 +420,23 @@ def settings():
     if request.method == "POST":
         action = request.form.get("action", "")
 
+        # Auth-related settings actions (create/edit users, OIDC providers, toggle).
+        if action.startswith("auth:"):
+            if _auth_settings_actions(action):
+                active_tab = "system-auth"
+                return redirect(url_for("main.settings", tab=active_tab) + f"#{active_tab}")
+
         # 1. API Key Actions
         if action == "save_api_key":
             api_key = request.form.get("api_key", "").strip()
+            # Persist per-user when an authenticated session is present.
+            current_user = auth.current_user() if auth.get_session_token_from_request() else None
             if api_key:
-                user = api.get_user(api_key)
+                if current_user:
+                    current_user.api_key = api_key
+                    db.session.commit()
                 session["api_key"] = api_key
+                user = api.get_user(api_key)
                 if user:
                     session["user"] = user
                     flash(f"Logged in as {user.get('username', 'Verified User')}", "success")
@@ -434,6 +448,10 @@ def settings():
             active_tab = "download-dirs"
 
         elif action == "clear_api_key":
+            current_user = auth.current_user() if auth.get_session_token_from_request() else None
+            if current_user:
+                current_user.api_key = ""
+                db.session.commit()
             session.pop("api_key", None)
             session.pop("user", None)
             flash("Civitai API Key cleared.", "info")
@@ -706,6 +724,14 @@ def settings():
     sys_cron = system_cron.get_config()
     self_update_info = _self_update_info()
 
+    # Auth context for the Users & SSO tab (only includes auth details for admins
+    # or when auth is off to avoid leaking user lists to non-admins).
+    auth_ctx = _inject_auth_ctx()
+    users = []
+    oidc_configs = oidc_mod.all_configs()
+    if (not auth.is_auth_enabled()) or (auth_ctx.get("user") and auth_ctx["user"].is_admin):
+        users = User.query.order_by(User.username).all()
+
     return render_template(
         "settings.html",
         api_key=api_key,
@@ -723,6 +749,9 @@ def settings():
         sys_update=sys_update,
         sys_cron=sys_cron,
         self_update_info=self_update_info,
+        users=users,
+        oidc_configs=oidc_configs,
+        auth_enabled=auth.is_auth_enabled(),
         active_tab=active_tab,
     )
 
@@ -871,3 +900,291 @@ def serve_file(filename):
     if not os.path.exists(filename):
         return "File not found", 404
     return send_file(filename)
+
+# --------------------------------------------------------------------------- #
+# Authentication (local users + OIDC SSO)
+# --------------------------------------------------------------------------- #
+
+# Routes that must remain public even when auth is enabled (login page, OIDC
+# redirect/callback, static assets, health).
+_PUBLIC_ENDPOINTS = {
+    "main.auth_login", "main.auth_login_post", "main.auth_logout",
+    "main.oidc_initiate", "main.oidc_callback",
+    "main.static", "main.serve_file",
+}
+
+@main.before_app_request
+def _guard_authentication():
+    """When auth is enabled, require a valid session for protected routes.
+
+    Safety valve: if auth is enabled but no users exist yet, the app stays
+    open (bootstrap mode) so you can create the first (admin) account without
+    locking yourself out.
+    """
+    if not auth.is_auth_enabled():
+        return None
+    endpoint = request.endpoint
+    if not endpoint or endpoint in _PUBLIC_ENDPOINTS:
+        return None
+    if not User.query.first():
+        return None  # bootstrap: no users yet, keep UI reachable
+    # API key is a Civitai credential, not a session — no longer enough.
+    from flask import redirect
+    if auth.get_session_token_from_request() and auth.current_user():
+        return None
+    return redirect(url_for("main.auth_login", next=request.path))
+
+def _inject_auth_ctx():
+    """Return the auth context dict for this request (user, auth_enabled)."""
+    user = None
+    try:
+        token = auth.get_session_token_from_request()
+        user = auth.validate_session(token) if token else None
+    except Exception:
+        user = None
+    return {
+        "authenticated": user is not None,
+        "user": user,
+        "auth_enabled": auth.is_auth_enabled(),
+    }
+
+@main.context_processor
+def inject_auth_context():
+    ctx = _inject_auth_ctx()
+    return {"auth_context": ctx}
+
+@main.route("/auth/login", methods=["GET", "POST"])
+def auth_login():
+    if request.method == "POST":
+        return _auth_login_post()
+    providers = oidc_mod.enabled_configs()
+    return render_template(
+        "login.html",
+        providers=providers,
+        auth_enabled=auth.is_auth_enabled(),
+        next_url=request.args.get("next") or "/",
+    )
+
+def _auth_login_post():
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    next_url = request.form.get("next") or request.args.get("next") or "/"
+    from urllib.parse import urlparse
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/"
+
+    client_ip = request.remote_addr or "unknown"
+    rate_key = f"{client_ip}:{username}"
+    if auth.rate_limited(rate_key):
+        flash("Too many login attempts. Please try again later.", "error")
+        return render_template(
+            "login.html", providers=oidc_mod.enabled_configs(),
+            auth_enabled=auth.is_auth_enabled(), next_url=next_url,
+        )
+
+    result = auth.authenticate_local(username, password)
+    if not result["success"]:
+        auth.record_failed(rate_key)
+        flash(result.get("error") or "Login failed", "error")
+        return render_template(
+            "login.html", providers=oidc_mod.enabled_configs(),
+            auth_enabled=auth.is_auth_enabled(), next_url=next_url,
+        )
+
+    auth.clear_failures(rate_key)
+    token = auth.create_session(result["user"].id, provider="local")
+    response = redirect(next_url)
+    auth.set_session_cookie(response, token)
+    return response
+
+@main.route("/auth/logout", methods=["GET", "POST"])
+def auth_logout():
+    token = auth.get_session_token_from_request()
+    auth.destroy_session(token)
+    response = redirect(url_for("main.index"))
+    auth.clear_session_cookie(response)
+    return response
+
+@main.route("/auth/oidc/<int:config_id>/initiate", methods=["GET"])
+def oidc_initiate(config_id):
+    if not auth.is_auth_enabled():
+        flash("Authentication is not enabled.", "warning")
+        return redirect(url_for("main.index"))
+    config = db.session.get(OidcConfig, config_id)
+    if not config or not config.enabled:
+        flash("OIDC provider not found or disabled.", "error")
+        return redirect(url_for("main.auth_login"))
+    next_url = request.args.get("next") or "/"
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/"
+    result = oidc_mod.build_authorization_url(config, redirect_url=next_url)
+    if result.get("error"):
+        flash(f"Could not start SSO: {result['error']}", "error")
+        return redirect(url_for("main.auth_login"))
+    return redirect(result["url"])
+
+@main.route("/auth/oidc/callback", methods=["GET"])
+def oidc_callback():
+    code = request.args.get("code")
+    state = request.args.get("state")
+    error = request.args.get("error")
+    if error:
+        flash(f"SSO failed: {error}", "error")
+        return redirect(url_for("main.auth_login"))
+    if not code or not state:
+        flash("Missing OIDC parameters.", "error")
+        return redirect(url_for("main.auth_login"))
+
+    result = oidc_mod.handle_callback(code, state)
+    if not result["success"]:
+        flash(result.get("error") or "SSO authentication failed", "error")
+        return redirect(url_for("main.auth_login"))
+
+    token = auth.create_session(result["user"].id, provider=f"oidc:{result['user'].auth_provider}")
+    response = redirect(result.get("redirect_url") or "/")
+    auth.set_session_cookie(response, token)
+    return response
+
+# Settings auth actions (dispatched from the settings form)
+def _auth_settings_actions(action):
+    """Handle auth-related settings actions; return True if handled.
+
+    Admin-gated: once auth is enabled, only an authenticated admin may manage
+    auth settings. During bootstrap (auth disabled) they're open so first-run
+    setup is possible.
+    """
+    # Authorize the manager of the current request.
+    def _is_allowed():
+        if not auth.is_auth_enabled():
+            return True  # bootstrap / no lock yet
+        token = auth.get_session_token_from_request()
+        user = auth.validate_session(token) if token else None
+        return bool(user and user.is_admin)
+    if not _is_allowed():
+        flash("Admin access required to change auth settings.", "error")
+        return True
+
+    if action == "auth:toggle":
+        enabled = request.form.get("enabled") == "1"
+        auth.set_auth_enabled(enabled)
+        flash(f"Authentication {'enabled' if enabled else 'disabled'}.", "success" if enabled else "info")
+        return True
+
+    if action == "auth:create_user":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if not username or not password:
+            flash("Username and password are required.", "error")
+            return True
+        if User.query.filter_by(username=username).first():
+            flash("User already exists.", "error")
+            return True
+        user = User(
+            username=username, password_hash=auth.hash_password(password),
+            is_active=True, is_admin=(request.form.get("is_admin") == "1"),
+            auth_provider="local",
+        )
+        db.session.add(user); db.session.commit()
+        flash(f"User '{username}' created.", "success")
+        return True
+
+    if action == "auth:update_user":
+        try:
+            user_id = int(request.form.get("user_id") or "")
+        except (TypeError, ValueError):
+            user_id = 0
+        user = db.session.get(User, user_id)
+        if user and not user.auth_provider.startswith("oidc:"):
+            pwd = request.form.get("password") or ""
+            if pwd:
+                user.password_hash = auth.hash_password(pwd)
+            if request.form.get("is_admin") == "1":
+                user.is_admin = True
+            db.session.commit()
+            flash(f"User '{user.username}' updated.", "success")
+        else:
+            flash("User not found or is an SSO account.", "error")
+        return True
+
+    if action == "auth:delete_user":
+        try:
+            user_id = int(request.form.get("user_id") or "")
+        except (TypeError, ValueError):
+            user_id = 0
+        user = db.session.get(User, user_id)
+        if user and user.username != "admin":
+            db.session.delete(user); db.session.commit()
+            flash(f"Deleted user '{user.username}'.", "info")
+        else:
+            flash("Cannot delete this user.", "error")
+        return True
+
+    if action == "auth:create_oidc":
+        config = OidcConfig(
+            name=(request.form.get("name") or "").strip(),
+            enabled=(request.form.get("enabled") == "1"),
+            issuer_url=(request.form.get("issuer_url") or "").strip(),
+            client_id=(request.form.get("client_id") or "").strip(),
+            client_secret=(request.form.get("client_secret") or "").strip(),
+            redirect_uri=(request.form.get("redirect_uri") or "").strip(),
+            scopes=(request.form.get("scopes") or "openid profile email").strip(),
+            username_claim=(request.form.get("username_claim") or "preferred_username").strip(),
+            email_claim=(request.form.get("email_claim") or "email").strip(),
+            display_name_claim=(request.form.get("display_name_claim") or "name").strip(),
+            admin_claim=(request.form.get("admin_claim") or "").strip(),
+            admin_value=(request.form.get("admin_value") or "").strip(),
+        )
+        db.session.add(config); db.session.commit()
+        flash(f"OIDC provider '{config.name}' added.", "success")
+        return True
+
+    if action == "auth:update_oidc":
+        try:
+            cid = int(request.form.get("config_id") or "")
+        except (TypeError, ValueError):
+            cid = 0
+        config = db.session.get(OidcConfig, cid)
+        if config:
+            for field, default in [
+                ("name", ""), ("issuer_url", ""), ("client_id", ""), ("redirect_uri", ""),
+                ("scopes", "openid profile email"),
+                ("username_claim", "preferred_username"), ("email_claim", "email"),
+                ("display_name_claim", "name"), ("admin_claim", ""), ("admin_value", ""),
+            ]:
+                val = (request.form.get(field) or "").strip()
+                setattr(config, field, val or default)
+            # Only overwrite the client secret if a new one was submitted.
+            new_secret = (request.form.get("client_secret") or "").strip()
+            if new_secret:
+                config.client_secret = new_secret
+            config.enabled = (request.form.get("enabled") == "1")
+            db.session.commit()
+            flash(f"OIDC provider '{config.name}' updated.", "success")
+        return True
+
+    if action == "auth:delete_oidc":
+        try:
+            cid = int(request.form.get("config_id") or "")
+        except (TypeError, ValueError):
+            cid = 0
+        config = db.session.get(OidcConfig, cid)
+        if config:
+            db.session.delete(config); db.session.commit()
+            flash(f"OIDC provider '{config.name}' deleted.", "info")
+        return True
+
+    if action == "auth:test_oidc":
+        try:
+            cid = int(request.form.get("config_id") or "")
+        except (TypeError, ValueError):
+            cid = 0
+        config = db.session.get(OidcConfig, cid)
+        if config:
+            res = oidc_mod.test_oidc_config(config)
+            if res["success"]:
+                flash(f"OIDC OK — issuer {res.get('issuer')}", "success")
+            else:
+                flash(f"OIDC test failed: {res.get('error', '')}", "error")
+        return True
+
+    return False

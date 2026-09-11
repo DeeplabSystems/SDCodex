@@ -47,6 +47,12 @@
                 <i class="fas fa-sync-alt me-2"></i>System & Update
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if active_tab == 'system-auth' %}active{% endif %} fw-semibold" id="system-auth-tab" data-bs-toggle="tab" data-bs-target="#system-auth" type="button" role="tab">
+                <i class="fas fa-user-lock me-2"></i>Users & SSO
+                {% if auth_context and auth_context.auth_enabled %}<span class="badge bg-success rounded-pill ms-1">on</span>{% endif %}
+            </button>
+        </li>
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
             {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
@@ -593,6 +599,164 @@
             </div>
         </div>
 
+        <div class="tab-pane fade {% if active_tab == 'system-auth' %}show active{% endif %}" id="system-auth" role="tabpanel">
+            <div class="card shadow-sm">
+                <div class="card-header bg-body-tertiary">
+                    <h5 class="mb-0"><i class="fas fa-user-lock text-primary me-2"></i>Users &amp; SSO</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary small mb-3">
+                        Enable authentication to require a sign-in before using the app. You can authenticate with a
+                        local username/password, an OpenID Connect (OIDC) identity provider, or both. When auth is
+                        on, the Civitai API key becomes a per-user setting (stored on your account) rather than the
+                        login credential.
+                    </p>
+
+                    <hr>
+                    <h6 class="fw-bold">Authentication</h6>
+                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-2 align-items-end mb-3">
+                        <input type="hidden" name="action" value="auth:toggle">
+                        <div class="col-auto">
+                            <label class="form-label">Status</label>
+                            <div class="form-switch form-check form-switch mt-1" style="padding-left:2.2rem;">
+                                <input class="form-check-input" type="checkbox" name="enabled" value="1"
+                                       id="auth-enabled-switch"
+                                       {% if auth_context and auth_context.auth_enabled %}checked{% endif %}>
+                                <label class="form-check-label small" for="auth-enabled-switch">Require sign-in</label>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-save me-1"></i>Save</button>
+                        </div>
+                        <div class="col-auto">
+                            <span class="text-secondary small">Enable first, then add users / SSO below. The first (or an
+                            admin) user must exist before you lock yourself out — sign in once with a local account first.</span>
+                        </div>
+                    </form>
+
+                    {% if auth_context and auth_context.authenticated and not auth_context.user.is_admin %}
+                    <div class="alert alert-secondary small mb-3">You are signed in as <strong>{{ auth_context.user.username }}</strong>
+                        (not an admin). Auth settings are admin-only here.</div>
+                    {% endif %}
+
+                    <hr>
+                    <h6 class="fw-bold">Local users</h6>
+                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-2 align-items-end mb-2">
+                        <input type="hidden" name="action" value="auth:create_user">
+                        <div class="col-md-3"><label class="form-label">Username</label>
+                            <input type="text" class="form-control form-control-sm" name="username" required></div>
+                        <div class="col-md-3"><label class="form-label">Password</label>
+                            <input type="password" class="form-control form-control-sm" name="password" required></div>
+                        <div class="col-md-2"><label class="form-label">Admin</label>
+                            <select class="form-select form-select-sm" name="is_admin"><option value="0">No</option><option value="1">Yes</option></select></div>
+                        <div class="col-md-2 align-self-end">
+                            <button type="submit" class="btn btn-sm btn-outline-success w-100"><i class="fas fa-plus me-1"></i>Add user</button></div>
+                    </form>
+                    {% if users %}
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>Username</th><th>Provider</th><th>Admin</th><th></th></tr></thead>
+                        <tbody>
+                        {% for u in users %}
+                            <tr>
+                                <td><i class="fas fa-user me-1"></i>{{ u.username }}{% if u.display_name %} <small class="text-secondary">({{ u.display_name }})</small>{% endif %}</td>
+                                <td><code>{{ u.auth_provider }}</code></td>
+                                <td>{% if u.is_admin %}<span class="badge text-bg-success">admin</span>{% else %}<span class="text-secondary">—</span>{% endif %}</td>
+                                <td class="text-end">
+                                    {% if not u.auth_provider.startswith('oidc:') and u.username != 'admin' %}
+                                    <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">
+                                        <input type="hidden" name="action" value="auth:delete_user">
+                                        <input type="hidden" name="user_id" value="{{ u.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete user"><i class="fas fa-trash-alt"></i></button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-secondary small">No users yet.</p>
+                    {% endif %}
+
+                    <hr>
+                    <h6 class="fw-bold">OIDC / SSO providers</h6>
+                    <form method="post" action="{{ url_for('main.settings') }}" class="row g-2 mb-2" id="oidc-edit-form">
+                        <input type="hidden" name="action" value="auth:create_oidc" id="oidc-action-field">
+                        <input type="hidden" name="config_id" value="" id="oidc-config-id-field">
+                        <div class="col-md-3"><label class="form-label">Name</label>
+                            <input type="text" class="form-control form-control-sm" name="name" placeholder="Keycloak" required></div>
+                        <div class="col-md-4"><label class="form-label">Issuer URL</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="issuer_url" placeholder="https://idp.example.com/realms/app" required></div>
+                        <div class="col-md-3"><label class="form-label">Redirect URI</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="redirect_uri" placeholder="https://sdcodex.example.com/auth/oidc/callback" required></div>
+                        <div class="col-md-2 align-self-end">
+                            <button type="submit" class="btn btn-sm btn-outline-success w-100" id="oidc-submit-btn"><i class="fas fa-plus me-1"></i>Add provider</button></div>
+                        <div class="col-md-4"><label class="form-label">Client ID</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="client_id" required></div>
+                        <div class="col-md-4"><label class="form-label">Client Secret</label>
+                            <input type="password" class="form-control form-control-sm font-monospace" name="client_secret" required></div>
+                        <div class="col-md-4"><label class="form-label">Scopes</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="scopes" value="openid profile email"></div>
+                        <div class="col-md-3"><label class="form-label">Username claim</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="username_claim" value="preferred_username"></div>
+                        <div class="col-md-3"><label class="form-label">Email claim</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="email_claim" value="email"></div>
+                        <div class="col-md-3"><label class="form-label">Display name claim</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="display_name_claim" value="name"></div>
+                        <div class="col-md-3"><label class="form-label">Admin claim</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="admin_claim" placeholder="groups"></div>
+                        <div class="col-md-3"><label class="form-label">Admin value(s)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" name="admin_value" placeholder="admins,sdcodex-admin"></div>
+                        <div class="col-md-2 align-self-end"><label class="form-label">Enabled</label>
+                            <select class="form-select form-select-sm" name="enabled"><option value="0">No</option><option value="1">Yes</option></select></div>
+                    </form>
+                    {% if oidc_configs %}
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>Name</th><th>Issuer</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+                        <tbody>
+                        {% for c in oidc_configs %}
+                            <tr>
+                                <td><i class="fas fa-id-badge me-1"></i>{{ c.name }}</td>
+                                <td class="text-secondary small text-truncate" style="max-width:260px;" title="{{ c.issuer_url }}">{{ c.issuer_url }}</td>
+                                <td>{% if c.enabled %}<span class="badge text-bg-success">enabled</span>{% else %}<span class="badge text-bg-secondary">disabled</span>{% endif %}</td>
+                                <td class="text-end">
+                                    <form method="post" action="{{ url_for('main.settings') }}" class="d-inline me-1">
+                                        <input type="hidden" name="action" value="auth:test_oidc">
+                                        <input type="hidden" name="config_id" value="{{ c.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Test connection"><i class="fas fa-vial"></i></button>
+                                    </form>
+                                    <button type="button" class="btn btn-sm btn-outline-primary me-1" title="Edit"
+                                       data-oidc-edit="{{ c.id }}" data-oidc-name="{{ c.name }}"
+                                       data-oidc-issuer="{{ c.issuer_url }}" data-oidc-clientid="{{ c.client_id }}"
+                                       data-oidc-secret="" data-oidc-redirect="{{ c.redirect_uri }}"
+                                       data-oidc-scopes="{{ c.scopes }}" data-oidc-uclaim="{{ c.username_claim }}"
+                                       data-oidc-eclaim="{{ c.email_claim }}" data-oidc-dclaim="{{ c.display_name_claim }}"
+                                       data-oidc-aclaim="{{ c.admin_claim }}" data-oidc-aval="{{ c.admin_value }}"
+                                       data-oidc-enabled="{{ 1 if c.enabled else 0 }}">
+                                        <i class="fas fa-pen"></i>
+                                    </button>
+                                    <form method="post" action="{{ url_for('main.settings') }}" class="d-inline">
+                                        <input type="hidden" name="action" value="auth:delete_oidc">
+                                        <input type="hidden" name="config_id" value="{{ c.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash-alt"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-secondary small">No OIDC providers configured.</p>
+                    {% endif %}
+                    <p class="text-secondary small">
+                        After adding a provider, set its <code>redirect_uri</code> in your IdP to the value shown here
+                        (<code>…/auth/oidc/callback</code>). Admins can be granted automatically by putting a group/role
+                        name in <em>Admin value(s)</em>.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         {% for plugin in installed_plugins %}
             {% if plugin._enabled and plugin.settings %}
             {% set entries = plugin.settings if plugin.settings is mapping else plugin.settings %}
@@ -924,6 +1088,41 @@
 
             if (runBtn) runBtn.addEventListener('click', runSelfUpdate);
             if (capBadge) loadCapability();
+        })();
+
+        // OIDC provider "edit" buttons: populate the provider form + switch it
+        // to update mode (config_id set, secret left blank to keep existing).
+        (function () {
+            const editBtns = document.querySelectorAll('[data-oidc-edit]');
+            if (!editBtns.length) return;
+            const setVal = (name, value) => {
+                const el = document.querySelector(`#oidc-edit-form input[name="${name}"]`);
+                if (el) el.value = value;
+            };
+            editBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setVal('name', btn.dataset.oidcName);
+                    setVal('issuer_url', btn.dataset.oidcIssuer);
+                    setVal('client_id', btn.dataset.oidcClientid);
+                    setVal('client_secret', '');
+                    setVal('redirect_uri', btn.dataset.oidcRedirect);
+                    setVal('scopes', btn.dataset.oidcScopes);
+                    setVal('username_claim', btn.dataset.oidcUclaim);
+                    setVal('email_claim', btn.dataset.oidcEclaim);
+                    setVal('display_name_claim', btn.dataset.oidcDclaim);
+                    setVal('admin_claim', btn.dataset.oidcAclaim);
+                    setVal('admin_value', btn.dataset.oidcAval);
+                    const enEl = document.querySelector('#oidc-edit-form select[name="enabled"]');
+                    if (enEl) enEl.value = btn.dataset.oidcEnabled || '0';
+                    document.getElementById('oidc-action-field').value = 'auth:update_oidc';
+                    document.getElementById('oidc-config-id-field').value = btn.dataset.oidcEdit;
+                    const sb = document.getElementById('oidc-submit-btn');
+                    sb.innerHTML = '<i class="fas fa-save me-1"></i>Save provider';
+                    const h = document.querySelector('#oidc-edit-form h5, #oidc-edit-form .fw-bold, #oidc-edit-form h6');
+                    const heading = document.querySelector('.fw-bold:not(.mb-0)');
+                    window.location.hash = 'system-auth';
+                });
+            });
         })();
 
         // Tab preservation via URL hash and query param

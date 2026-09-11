@@ -102,6 +102,21 @@
                     <a href="{{ url_for('main.settings', tab='plugins') if (plugin_updates_count and plugin_updates_count > 0) else url_for('main.settings') }}" class="nav-icon me-3 position-relative" title="Settings">
                         <i class="fas fa-cog fa-lg"></i>
                     </a>
+                    {% if auth_context and auth_context.auth_enabled %}
+                        {% if auth_context.authenticated and auth_context.user %}
+                        <span class="me-2 text-secondary small d-none d-md-inline">
+                            <i class="fas fa-user-circle me-1"></i>{{ auth_context.user.username }}
+                        </span>
+                        <a href="{{ url_for('main.auth_logout') }}" class="nav-icon me-2" title="Sign out" onclick="event.preventDefault();document.getElementById('sdcodex-logout-form').submit();">
+                            <i class="fas fa-sign-out-alt fa-lg"></i>
+                        </a>
+                        <form id="sdcodex-logout-form" method="post" action="{{ url_for('main.auth_logout') }}" class="d-none"></form>
+                        {% else %}
+                        <a href="{{ url_for('main.auth_login') }}" class="nav-icon me-2" title="Sign in">
+                            <i class="fas fa-sign-in-alt fa-lg"></i>
+                        </a>
+                        {% endif %}
+                    {% endif %}
                 </div>
             </div>
         </div>

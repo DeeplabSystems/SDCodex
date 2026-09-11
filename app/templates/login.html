@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Sign in — SD Codex{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 460px;">
+    <div class="card shadow-sm mt-5">
+        <div class="card-header bg-body-tertiary">
+            <h5 class="mb-0"><i class="fas fa-lock text-primary me-2"></i>Sign in to SD Codex</h5>
+        </div>
+        <div class="card-body">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else (category if category in ('success','warning','info') else 'secondary') }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form method="post" action="{{ url_for('main.auth_login') }}" class="mb-3">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" name="username" autofocus required autocomplete="username">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary w-100"><i class="fas fa-sign-in-alt me-1"></i>Sign in</button>
+            </form>
+
+            {% if providers %}
+            <hr>
+            <p class="text-secondary small text-center mb-2">or continue with single sign-on</p>
+            <div class="d-grid gap-2">
+                {% for p in providers %}
+                <a class="btn btn-outline-secondary" href="{{ url_for('main.oidc_initiate', config_id=p.id, next=next_url) }}">
+                    <i class="fas fa-id-badge me-1"></i>Continue with {{ p.name }}
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
