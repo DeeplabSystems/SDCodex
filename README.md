@@ -93,6 +93,19 @@ The watcher runs `update.sh` (`git pull` + `docker compose up -d --build`) on
 the host whenever a request is pending, and records the outcome (and git
 commit) back into the state file so the web UI shows status/progress.
 
+### Easy cron setup (`scripts/setup_cron.sh`)
+
+Interactive helper that sets up the cron job for you:
+
+```bash
+scripts/setup_cron.sh
+```
+
+It prompts for your SDCodex install directory (the `scripts/ui-update-watcher.sh`
+path is appended automatically), asks how often to check for updates (minutes,
+or a raw cron expression), and installs an idempotent cron entry. Run it as the
+user whose Docker + repo access matches how you run `update.sh`.
+
 ---
 
 ## 🛠️ Plugin Development
