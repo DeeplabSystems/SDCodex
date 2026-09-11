@@ -414,9 +414,10 @@ class PluginManager:
 
         Returns a dict (cached in ``core_update_cache``) with
         ``has_update``, ``local_sha``, ``remote_sha``, ``branch`` and the
-        latest remote commit message/date. ``local_sha`` comes from the
-        host-written stamp ``db/core.rev`` (populated by ``update.sh``), so the
-        check is meaningful only once that stamp exists.
+        latest remote commit message/date. ``local_sha`` comes from the stamp
+        ``db/core.rev``, which the app writes itself at startup (see
+        ``_stamp_core_rev_if_missing``), so the check is meaningful once that
+        stamp exists.
         """
         local = self._read_core_local_rev()
         result = {
@@ -465,13 +466,10 @@ class PluginManager:
                     try:
                         result = self.check_core_update()
                         self.core_update_cache = result
-                        # Establish the deployed-revision baseline on first
-                        # startup. The old host-side update.sh used to write
-                        # db/core.rev; with self-update that file is no longer
-                        # created, so without this the header update icon can
-                        # never appear. We stamp once with the current remote
-                        # HEAD; afterwards the stamp stays frozen so any newer
-                        # push sets has_update=True.
+                        # Establish the deployed-revision baseline on first startup so the
+                        # header update icon can appear. We stamp once with the
+                        # current remote HEAD; afterwards the stamp stays frozen
+                        # so any newer push sets has_update=True.
                         self._stamp_core_rev_if_missing(result.get("remote_sha", ""))
                     except Exception:
                         logger.exception("Background core update check failed")

@@ -572,7 +572,7 @@ def settings():
 
             success, msg = plugin_manager.install_plugin(repo_url, volume_paths)
             if success:
-                flash(f"{msg} Notice: Volume paths written to .env and docker-compose.yml. Run 'update.sh' to rebuild and mount the new volumes.", "success")
+                flash(f"{msg} Volume paths were written to .env and docker-compose.yml. Use Settings → Plugins & Updates → Core App Update → Replace this container (self-update) to rebuild and mount the new volumes.", "success")
             else:
                 flash(f"Failed to install plugin: {msg}", "error")
             active_tab = "plugins"
@@ -590,7 +590,7 @@ def settings():
             plugin_id = action.split(":", 1)[1]
             success, msg = plugin_manager.uninstall_plugin(plugin_id)
             if success:
-                flash(f"{msg} Compose volumes cleaned up. Run 'update.sh' to restart without this plugin.", "info")
+                flash(f"{msg} Compose volumes cleaned up. Use Settings → Plugins & Updates → Core App Update → Replace this container (self-update) to restart without this plugin.", "info")
             else:
                 flash(f"Uninstall failed: {msg}", "error")
             active_tab = "plugins"
@@ -605,7 +605,7 @@ def settings():
                     volume_paths[env_var] = v.strip()
 
             plugin_manager.apply_volume_config(manifest, volume_paths)
-            flash(f"Volume settings saved for '{plugin_id}'. Run 'update.sh' to apply new mount points.", "success")
+            flash(f"Volume settings saved for '{plugin_id}'. Use Settings → Plugins & Updates → Core App Update → Replace this container (self-update) to apply the new mount points.", "success")
             active_tab = "plugins"
 
         elif action.startswith("toggle_plugin:"):
