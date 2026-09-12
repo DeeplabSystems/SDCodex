@@ -822,7 +822,7 @@ def self_update_progress():
         return jsonify({"error": "Container ID is required"}), 400
     return jsonify(docker_selfupdate.poll_updater_progress(cid))
 
-@main.context_processor
+@main.app_context_processor
 def inject_downloaded_models():
     downloads = Download.query.all()
     downloaded_models = {}
@@ -901,7 +901,7 @@ def _inject_auth_ctx():
         "auth_enabled": auth.is_auth_enabled(),
     }
 
-@main.context_processor
+@main.app_context_processor
 def inject_auth_context():
     ctx = _inject_auth_ctx()
     return {"auth_context": ctx}
