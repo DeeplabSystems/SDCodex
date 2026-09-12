@@ -1703,3 +1703,282 @@ body {
 [data-theme='dark'] .navbar-dark {
   background: #080808 !important;
 }
+
+/* ------------------------------------------------------------------ */
+/* Header user radial menu (Daily UI #006 "user profile" concept).     */
+/* Pill with avatar + name + round toggle; click fans the menu options */
+/* out along a downward arc. All colors via theme vars (light + dark). */
+/* ------------------------------------------------------------------ */
+.userfan {
+  --fan-r: 118px;
+  --fan-node: 46px;
+  position: relative;
+}
+
+.userfan-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.3rem 0.35rem 0.3rem 0.4rem;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--card-shadow);
+  max-width: 230px;
+}
+
+.userfan-photo {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--card-bg);
+  border: 2px solid var(--card-bg);
+  box-shadow: 0 0 6px var(--shadow-color);
+}
+
+.userfan-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.userfan-photo i {
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+}
+
+.userfan-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+  margin-right: 0.1rem;
+}
+
+.userfan-text strong,
+.userfan-text small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userfan-text strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.userfan-text small {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+/* Round toggle button: hamburger <-> arrow morph (Daily UI #006). */
+.userfan-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background-color: var(--primary);
+  transition: var(--transition);
+}
+
+.userfan-btn:hover {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.userfan-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.userfan-btn span {
+  width: 55%;
+  height: 2px;
+  position: absolute;
+  background-color: #fff;
+  top: 50%;
+  left: 22.5%;
+  transform: translateY(-50%);
+  animation: userfan-to-hamburger 0.3s forwards ease-in-out;
+}
+
+.userfan-btn span::before,
+.userfan-btn span::after {
+  content: "";
+  width: 100%;
+  height: 2px;
+  position: absolute;
+  background-color: #fff;
+  transition-duration: 0.3s;
+  transform: rotate(0deg);
+  right: 0;
+}
+
+.userfan-btn span::before { margin-top: -6px; }
+.userfan-btn span::after { margin-top: 6px; }
+
+.userfan-btn.active span {
+  animation: userfan-to-arrow 0.3s forwards ease-in-out;
+}
+
+.userfan-btn.active span::before,
+.userfan-btn.active span::after {
+  width: 60%;
+  right: -1px;
+}
+
+.userfan-btn.active span::before { transform: rotate(45deg); }
+.userfan-btn.active span::after { transform: rotate(-45deg); }
+
+@keyframes userfan-to-hamburger {
+  from { transform: translateY(-50%) rotate(-180deg); }
+}
+
+@keyframes userfan-to-arrow {
+  from { transform: translateY(-50%) rotate(0deg); }
+  to { transform: translateY(-50%) rotate(180deg); }
+}
+
+/* Fan-out field anchored under the pill, arcing downward. */
+.userfan-box {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 16px;
+  width: 0;
+  height: 0;
+  z-index: 1200;
+}
+
+.userfan-halo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--fan-r) * 2 + 64px);
+  height: calc(var(--fan-r) * 2 + 64px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background-color: color-mix(in srgb, var(--card-bg) 72%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.userfan-box.open .userfan-halo { opacity: 1; }
+
+.userfan-item {
+  position: absolute;
+  left: calc(var(--fan-node) / -2);
+  top: calc(var(--fan-node) / -2);
+  width: var(--fan-node);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  opacity: 0;
+  transform: scale(0.3);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.25s ease;
+  z-index: 1;
+}
+
+.userfan-box.open .userfan-item {
+  opacity: 1;
+  transform: rotate(var(--fan-angle, 90deg)) translateX(var(--fan-r)) rotate(calc(var(--fan-angle, 90deg) * -1));
+}
+
+.userfan-box.open .userfan-item:nth-child(2) { transition-delay: 0.03s; }
+.userfan-box.open .userfan-item:nth-child(3) { transition-delay: 0.09s; }
+.userfan-box.open .userfan-item:nth-child(4) { transition-delay: 0.15s; }
+.userfan-box.open .userfan-item:nth-child(5) { transition-delay: 0.21s; }
+.userfan-box.open .userfan-item:nth-child(6) { transition-delay: 0.27s; }
+
+.userfan-node {
+  width: var(--fan-node);
+  height: var(--fan-node);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--card-shadow);
+  transition: var(--transition);
+}
+
+.userfan-node i {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  transition: var(--transition);
+}
+
+.userfan-item:hover .userfan-node,
+.userfan-item:focus-visible .userfan-node {
+  border-color: var(--primary);
+  box-shadow: var(--hover-shadow);
+  transform: translateY(-2px);
+}
+
+.userfan-item:hover .userfan-node i,
+.userfan-item:focus-visible .userfan-node i {
+  color: var(--primary);
+}
+
+.userfan-item:focus-visible { outline: none; }
+.userfan-item:focus-visible .userfan-node {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Currently active theme choice. */
+.userfan-item.userfan-current .userfan-node {
+  border-color: var(--primary);
+  box-shadow: var(--glow);
+}
+
+.userfan-item.userfan-current .userfan-node i { color: var(--primary); }
+
+.userfan-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background-color: color-mix(in srgb, var(--card-bg) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.userfan-item:hover .userfan-label { color: var(--text); }
+
+@media (max-width: 575.98px) {
+  .userfan { --fan-r: 92px; --fan-node: 42px; }
+  .userfan-pill { max-width: none; }
+  .userfan-text { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .userfan-btn,
+  .userfan-btn span,
+  .userfan-btn span::before,
+  .userfan-btn span::after,
+  .userfan-item,
+  .userfan-halo,
+  .userfan-node {
+    transition: none;
+    animation: none;
+  }
+}

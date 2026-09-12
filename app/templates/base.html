@@ -122,57 +122,71 @@
                         <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.65rem;">{{ header_updates.total }}</span>
                     </a>
                     {% endif %}
-                    <!-- Account dropdown: Profile / Themes / Settings -->
-                    <div class="dropdown ms-2" id="account-dropdown">
-                        <button class="btn btn-link nav-icon dropdown-toggle p-0" type="button"
-                                data-bs-toggle="dropdown" aria-expanded="false" title="Account & settings">
-                            {% if auth_context and auth_context.authenticated and auth_context.user and auth_context.user.avatar %}
-                            <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
-                                 alt="Profile picture" class="rounded-circle" width="32" height="32" style="object-fit:cover; border:2px solid var(--bs-border-color);">
-                            {% else %}
-                            <i class="fas fa-user-circle fa-lg"></i>
-                            {% endif %}
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow">
-                            {% if auth_context and auth_context.authenticated and auth_context.user %}
-                            <li class="d-flex align-items-center dropdown-header py-2">
-                                {% if auth_context.user.avatar %}
+                    <!-- Account radial menu: profile pill + fan-out options (Daily UI #006).
+                         Same options as the old dropdown: Profile / Light / Dark /
+                         Settings / Sign in-out. Theme-aware via style.css. -->
+                    <div class="userfan ms-2" id="userfan">
+                        {% if auth_context and auth_context.authenticated and auth_context.user %}
+                        {% set _uname = auth_context.user.display_name or auth_context.user.username %}
+                        {% set _sub = ('@' ~ auth_context.user.username) if auth_context.user.display_name else 'Account' %}
+                        {% else %}
+                        {% set _uname = 'Guest' %}
+                        {% set _sub = 'Sign in' if (auth_context and auth_context.auth_enabled) else 'Account' %}
+                        {% endif %}
+                        <div class="userfan-pill">
+                            <span class="userfan-photo">
+                                {% if auth_context and auth_context.authenticated and auth_context.user and auth_context.user.avatar %}
                                 <img src="{{ url_for('main.profile_avatar', user_id=auth_context.user.id) }}?t={{ auth_context.user.avatar }}"
-                                     alt="Profile picture" class="rounded-circle me-2" width="32" height="32" style="object-fit:cover; border:2px solid var(--bs-border-color);">
+                                     alt="Profile picture">
                                 {% else %}
-                                <i class="fas fa-user-circle fa-lg me-2"></i>
+                                <i class="fas fa-user-circle"></i>
                                 {% endif %}
-                                <span>{{ auth_context.user.display_name or auth_context.user.username }}</span>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ url_for('main.profile') }}"><i class="fas fa-user-cog me-2"></i>Profile</a></li>
-                            <li><hr class="dropdown-divider"></li>
+                            </span>
+                            <span class="userfan-text">
+                                <strong>{{ _uname }}</strong>
+                                <small>{{ _sub }}</small>
+                            </span>
+                            <button type="button" class="userfan-btn" aria-expanded="false"
+                                    aria-controls="userfan-box" aria-label="Account menu"><span></span></button>
+                        </div>
+                        <div class="userfan-box" id="userfan-box">
+                            <span class="userfan-halo" aria-hidden="true"></span>
+                            {% if auth_context and auth_context.authenticated and auth_context.user %}
+                            <a role="menuitem" class="userfan-item" href="{{ url_for('main.profile') }}" title="Profile">
+                                <span class="userfan-node"><i class="fas fa-user-cog"></i></span>
+                                <span class="userfan-label">Profile</span>
+                            </a>
                             {% endif %}
-                            <li><h6 class="dropdown-header"><i class="fas fa-palette me-2"></i>Theme</h6></li>
-                            <li>
-                                <a class="dropdown-item theme-option" href="#" data-theme-choice="light">
-                                    <i class="fas fa-sun me-2"></i>Light&nbsp;<span class="theme-check" style="display:none;"><i class="fas fa-check ms-2 text-success"></i></span>
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item theme-option" href="#" data-theme-choice="dark">
-                                    <i class="fas fa-moon me-2"></i>Dark&nbsp;<span class="theme-check" style="display:none;"><i class="fas fa-check ms-2 text-success"></i></span>
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ url_for('main.settings') }}"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                            <a role="menuitem" class="userfan-item theme-option" href="#" data-theme-choice="light" title="Light theme">
+                                <span class="userfan-node"><i class="fas fa-sun"></i></span>
+                                <span class="userfan-label">Light</span>
+                            </a>
+                            <a role="menuitem" class="userfan-item theme-option" href="#" data-theme-choice="dark" title="Dark theme">
+                                <span class="userfan-node"><i class="fas fa-moon"></i></span>
+                                <span class="userfan-label">Dark</span>
+                            </a>
+                            <a role="menuitem" class="userfan-item" href="{{ url_for('main.settings') }}" title="Settings">
+                                <span class="userfan-node"><i class="fas fa-cog"></i></span>
+                                <span class="userfan-label">Settings</span>
+                            </a>
                             {% if auth_context and auth_context.auth_enabled %}
-                            <li><hr class="dropdown-divider"></li>
                             {% if auth_context.authenticated and auth_context.user %}
-                            <li>
-                                <a class="dropdown-item" href="#" onclick="event.preventDefault();document.getElementById('sdcodex-logout-form').submit();"><i class="fas fa-sign-out-alt me-2"></i>Sign out</a>
-                            </li>
-                            <li><form id="sdcodex-logout-form" method="post" action="{{ url_for('main.auth_logout') }}" class="d-none"></form></li>
+                            <a role="menuitem" class="userfan-item" href="#" title="Sign out"
+                               onclick="event.preventDefault();document.getElementById('sdcodex-logout-form').submit();">
+                                <span class="userfan-node"><i class="fas fa-sign-out-alt"></i></span>
+                                <span class="userfan-label">Sign out</span>
+                            </a>
                             {% else %}
-                            <li><a class="dropdown-item" href="{{ url_for('main.auth_login') }}"><i class="fas fa-sign-in-alt me-2"></i>Sign in</a></li>
+                            <a role="menuitem" class="userfan-item" href="{{ url_for('main.auth_login') }}" title="Sign in">
+                                <span class="userfan-node"><i class="fas fa-sign-in-alt"></i></span>
+                                <span class="userfan-label">Sign in</span>
+                            </a>
                             {% endif %}
                             {% endif %}
-                        </ul>
+                        </div>
+                        {% if auth_context and auth_context.auth_enabled and auth_context.authenticated and auth_context.user %}
+                        <form id="sdcodex-logout-form" method="post" action="{{ url_for('main.auth_logout') }}" class="d-none"></form>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -289,6 +303,9 @@
                 const check = el.querySelector('.theme-check');
                 if (check) check.style.display = (el.getAttribute('data-theme-choice') === theme) ? 'inline' : 'none';
             });
+            document.querySelectorAll('.userfan-item[data-theme-choice]').forEach(function (el) {
+                el.classList.toggle('userfan-current', el.getAttribute('data-theme-choice') === theme);
+            });
         }
 
         (function () {
@@ -302,6 +319,38 @@
                 applyTheme(el.getAttribute('data-theme-choice'));
             });
         });
+
+        // Header user radial menu (Daily UI #006): toggle pill button fans the
+        // menu options out along a downward arc. Vanilla JS, no dependencies.
+        (function () {
+            const fan = document.getElementById('userfan');
+            if (!fan) return;
+            const btn = fan.querySelector('.userfan-btn');
+            const box = fan.querySelector('.userfan-box');
+            if (!btn || !box) return;
+            const items = Array.prototype.slice.call(box.querySelectorAll('.userfan-item'));
+            // Spread items along a downward arc (35deg..145deg in screen coords).
+            const n = items.length;
+            items.forEach(function (el, i) {
+                const angle = n <= 1 ? 90 : 35 + (110 * i) / (n - 1);
+                el.style.setProperty('--fan-angle', angle.toFixed(2) + 'deg');
+            });
+            function setOpen(open) {
+                btn.classList.toggle('active', open);
+                box.classList.toggle('open', open);
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                setOpen(!box.classList.contains('open'));
+            });
+            document.addEventListener('click', function (e) {
+                if (!fan.contains(e.target)) setOpen(false);
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') setOpen(false);
+            });
+        })();
     </script>
     <script>
         // Site-wide flash toasts: server-rendered in #flash-toast-container.
