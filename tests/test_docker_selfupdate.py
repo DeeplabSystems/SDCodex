@@ -85,11 +85,31 @@ def test_build_create_config():
     assert cc["Image"] == "new:img"
     for key in ("Entrypoint", "Cmd", "Hostname", "MacAddress", "NetworkingConfig"):
         assert key not in cc, key
-    assert "/data/db:/home/me/db:rw" in cc["HostConfig"]["Binds"]
+    assert "/home/me/db:/data/db:rw" in cc["HostConfig"]["Binds"]
     # /data/db is bound -> must not remain in Volumes
     assert "/data/db" not in (cc.get("Volumes") or {})
     # /app has no bind -> stays as an anonymous volume
     assert "/app" in (cc.get("Volumes") or {})
+
+
+def test_rebuild_binds_same_src_two_dests_no_duplicate_mount():
+    # Regression: CAPTION_MODELS + LMSTUDIO_MODELS both point at
+    # ~/ai/LLModels. Correct src:dest order keeps distinct container
+    # dests; the old reversed dest:src order produced two binds to the
+    # same container path -> Docker 400 "Duplicate mount point".
+    mounts = [
+        {"Type": "bind", "Source": "/home/naked/ai/LLModels",
+         "Destination": "/data/caption_models", "RW": True},
+        {"Type": "bind", "Source": "/home/naked/ai/LLModels",
+         "Destination": "/data/lmstudio_models", "RW": True},
+    ]
+    binds = SELFUPDATE._rebuild_binds(mounts)
+    assert binds == [
+        "/home/naked/ai/LLModels:/data/caption_models:rw",
+        "/home/naked/ai/LLModels:/data/lmstudio_models:rw",
+    ]
+    dests = [b.split(":")[1] for b in binds]
+    assert len(set(dests)) == len(dests)
 
 
 def test_decode_container_logs():

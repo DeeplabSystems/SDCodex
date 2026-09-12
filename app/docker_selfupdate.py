@@ -474,8 +474,14 @@ def build_create_config(info, new_image):
 
     volumes = dict(config.get("Volumes") or {})
     observed = {m.get("Destination") for m in mounts}
+    bind_dests = set()
+    for b in binds:
+        # Bind format is "src:dest[:mode]"; dest is the container path.
+        parts = b.split(":")
+        if len(parts) >= 2:
+            bind_dests.add(parts[1])
     volumes = {d: v for d, v in volumes.items()
-               if d not in observed and d not in {b[0] for b in binds}}
+               if d not in observed and d not in bind_dests}
     if volumes:
         create["Volumes"] = volumes
     else:
@@ -487,8 +493,15 @@ def build_create_config(info, new_image):
 
 
 def _rebuild_binds(mounts):
-    """Convert inspect ``Mounts`` into HostConfig.Binds 'dest:src:rw' strings."""
+    """Convert inspect ``Mounts`` into HostConfig.Binds 'src:dest:mode' strings.
+
+    Docker Binds format is ``host_src:container_dest[:mode]``. The same host
+    dir may legally back two container paths (e.g. CAPTION_MODELS and
+    LMSTUDIO_MODELS both pointing at ~/ai/LLModels), so dedup is by the full
+    string — never by src or dest alone.
+    """
     binds = []
+    seen = set()
     for m in mounts:
         if m.get("Type") != "bind" or not m.get("Source"):
             continue
@@ -497,7 +510,10 @@ def _rebuild_binds(mounts):
         if not dest:
             continue
         mode = "rw" if m.get("RW") else "ro"
-        binds.append(f"{dest}:{src}:{mode}")
+        b = f"{src}:{dest}:{mode}"
+        if b not in seen:
+            seen.add(b)
+            binds.append(b)
     return binds
 
 
