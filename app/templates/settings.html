@@ -11,17 +11,6 @@
         </div>
     </div>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    {% for category, message in messages %}
-    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show mb-4 shadow-sm" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-    {% endfor %}
-    {% endif %}
-    {% endwith %}
-
     <!-- Navigation Tabs -->
     <ul class="nav nav-tabs mb-4" id="settingsTab" role="tablist">
         <li class="nav-item" role="presentation">
@@ -885,7 +874,7 @@
                     m.show();
                 }
                 runBtn.disabled = true;
-                setStep('pulling_image', 'primary', '&#9899;');
+                setStep('pulling_image', 'primary', '\u25cf');
                 try {
                     const resp = await fetch('/settings/self_update', {
                         method: 'POST',
@@ -917,8 +906,8 @@
                                 let d = {};
                                 try { d = JSON.parse(line.substring(6)); } catch (e) {}
                                 if (evType === 'step') {
-                                    if (d.status === 'completed') setStep(d.step, 'success', '&#10003;');
-                                    else setStep(d.step, 'primary', '&#9899;');
+                                    if (d.status === 'completed') setStep(d.step, 'success', '\u2713');
+                                    else setStep(d.step, 'primary', '\u25cf');
                                 } else if (evType === 'log') {
                                     appendLog(d.message);
                                 } else if (evType === 'launched') {
@@ -953,11 +942,11 @@
                         const p = await r.json();
                         if (p.logs) { logEl.textContent = p.logs; logEl.scrollTop = logEl.scrollHeight; }
                         if (p.status === 'removed') {
-                            setStep('starting', 'success', '&#10003;');
+                            setStep('starting', 'success', '\u2713');
                             setStatus('Update completed — the container has been replaced.');
                             done = true;
                         } else if (p.status === 'exited') {
-                            setStep('starting', p.exit_code === 0 ? 'success' : 'danger', p.exit_code === 0 ? '&#10003;' : '&#10007;');
+                            setStep('starting', p.exit_code === 0 ? 'success' : 'danger', p.exit_code === 0 ? '\u2713' : '\u2717');
                             setStatus(p.exit_code === 0 ? 'Update completed.' : 'Updater exited with code ' + p.exit_code);
                             done = true;
                         } else {
@@ -982,7 +971,7 @@
                 for (const ph of LOG_PHASES) {
                     if (logs.includes(ph.m)) hit = ph;
                 }
-                if (hit) setStep(hit.step, 'primary', '&#9899;');
+                if (hit) setStep(hit.step, 'primary', '\u25cf');
             }
 
             if (runBtn) runBtn.addEventListener('click', runSelfUpdate);

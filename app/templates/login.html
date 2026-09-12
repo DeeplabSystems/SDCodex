@@ -18,17 +18,6 @@
             {% endif %}
         </div>
         <div class="card-body">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ 'danger' if category == 'error' else (category if category in ('success','warning','info') else 'secondary') }} alert-dismissible fade show" role="alert">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-
             {% if first_run is defined and first_run %}
             <div class="alert alert-info border-info">
                 <i class="fas fa-user-shield me-2"></i>

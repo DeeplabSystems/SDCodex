@@ -24,8 +24,32 @@
 </head>
 
 <body>
-    <!-- Floating flash-message toasts (moved here from inline alerts by JS in the scripts block) -->
-    <div class="toast-container position-fixed top-0 end-0 p-3" id="flash-toast-container" style="z-index: 2000;"></div>
+    <!-- Site-wide flash-message toasts: rendered here in base so they appear
+         on EVERY page (core + plugins). Non-errors auto-fade; errors stick. -->
+    <div class="toast-container position-fixed end-0 p-3" id="flash-toast-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        {% set cat = 'danger' if category == 'error' else (category if category in ('success', 'info', 'warning', 'danger') else 'info') %}
+        <div class="toast flash-toast flash-{{ cat }}" role="status" aria-live="polite"
+             data-category="{{ cat }}" data-sticky="{{ '1' if cat == 'danger' else '0' }}"
+             data-bs-autohide="{{ 'false' if cat == 'danger' else 'true' }}"
+             data-bs-delay="5000">
+            <div class="d-flex align-items-center">
+                <div class="toast-body d-flex align-items-center flex-grow-1">
+                    {% if cat == 'success' %}<i class="fas fa-circle-check me-2 flash-icon"></i>
+                    {% elif cat == 'warning' %}<i class="fas fa-triangle-exclamation me-2 flash-icon"></i>
+                    {% elif cat == 'danger' %}<i class="fas fa-triangle-exclamation me-2 flash-icon"></i>
+                    {% else %}<i class="fas fa-circle-info me-2 flash-icon"></i>{% endif %}
+                    <span class="flash-text">{{ message }}</span>
+                </div>
+                <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+    </div>
     {% block navbar %}<nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
@@ -167,7 +191,31 @@
                     <div class="d-flex align-items-center">
                         <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
                             <span class="visually-hidden">Loading...</span>
-                        </div>
+    </div>
+    <style>
+        /* Site-wide flash toasts: below the sticky navbar, above content. */
+        #flash-toast-container { top: 76px; z-index: 3000; }
+        #flash-toast-container .flash-toast {
+            min-width: 280px; max-width: 380px;
+            margin-bottom: 0.6rem;
+            border: 0; border-radius: 0.6rem;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+            background: var(--bs-body-bg, #fff);
+            border-left: 5px solid var(--bs-info);
+            color: var(--bs-body-color, #212529);
+            overflow: hidden;
+        }
+        #flash-toast-container .flash-toast .toast-body { padding: 0.75rem 0.9rem; }
+        #flash-toast-container .flash-toast .flash-text { overflow-wrap: anywhere; }
+        #flash-toast-container .flash-success { border-left-color: var(--bs-success); }
+        #flash-toast-container .flash-success .flash-icon { color: var(--bs-success); }
+        #flash-toast-container .flash-info { border-left-color: var(--bs-info); }
+        #flash-toast-container .flash-info .flash-icon { color: var(--bs-info); }
+        #flash-toast-container .flash-warning { border-left-color: var(--bs-warning); }
+        #flash-toast-container .flash-warning .flash-icon { color: var(--bs-warning); }
+        #flash-toast-container .flash-danger { border-left-color: var(--bs-danger); }
+        #flash-toast-container .flash-danger .flash-icon { color: var(--bs-danger); }
+    </style>
                         <h6 class="mb-0 text-truncate" id="download-title" style="max-width: 230px;">Downloading...</h6>
                     </div>
                     <span id="queue-count-badge" class="badge bg-secondary rounded-pill"></span>
@@ -256,74 +304,67 @@
         });
     </script>
     <script>
-        // Floating flash messages: lift any rendered inline alert (role="alert")
-        // into a fixed top-right toast and auto-fade it after a few seconds.
+        // Site-wide flash toasts: server-rendered in #flash-toast-container.
+        // Non-errors auto-fade (~5s); errors (danger) stick until dismissed.
+        // Also exposes window.sdcodexNotify(message, category) for AJAX flows.
         (function () {
-            var container = document.getElementById('flash-toast-container');
-            if (!container) return;
-            var alerts = Array.prototype.slice.call(document.querySelectorAll('div[role="alert"]'));
-            var CATEGORY_STYLE = {
-                'alert-success': { icon: 'fa-circle-check', color: 'var(--bs-success)' },
-                'alert-info':    { icon: 'fa-circle-info',  color: 'var(--bs-info)' },
-                'alert-warning': { icon: 'fa-triangle-exclamation', color: 'var(--bs-warning)' },
-                'alert-danger':  { icon: 'fa-triangle-exclamation', color: 'var(--bs-danger)' },
-                'alert-error':   { icon: 'fa-triangle-exclamation', color: 'var(--bs-danger)' }
+            var ICONS = {
+                success: 'fa-circle-check',
+                info: 'fa-circle-info',
+                warning: 'fa-triangle-exclamation',
+                danger: 'fa-triangle-exclamation'
             };
-            alerts.forEach(function (alertEl) {
-                // Pull the close button's sibling text (the message).
-                var closeBtn = alertEl.querySelector('.btn-close');
-                var msgEl = closeBtn ? closeBtn.previousElementSibling : null;
-                var message = (msgEl ? msgEl.textContent : alertEl.textContent).trim();
-                if (!message) return;
-
-                var style = CATEGORY_STYLE['alert-success'];
-                for (var cls in CATEGORY_STYLE) {
-                    if (alertEl.classList.contains(cls)) { style = CATEGORY_STYLE[cls]; break; }
-                }
-
-                var id = 'flash-' + Math.random().toString(36).slice(2, 8);
-                var toast = document.createElement('div');
-                toast.className = 'toast align-items-center border-0';
-                toast.id = id;
-                toast.setAttribute('role', 'alert');
-                toast.style.minWidth = '280px';
-                // Auto-dismiss after ~5s.
-                toast.setAttribute('data-bs-autohide', 'true');
-                toast.setAttribute('data-bs-delay', '5000');
-
-                // Theme-aware surface: dark or light background, plus a colored
-                // left accent bar and a soft type-tint overlay (colored by the
-                // message category). Uses CSS vars so it adapts to data-bs-theme.
-                var isDark = (document.documentElement.getAttribute('data-bs-theme') || 'light') === 'dark';
-                var surface = isDark ? 'var(--bs-body-bg)' : 'rgba(255,255,255,0.96)';
-                var textColor = isDark ? '#e6e6e6' : '#1f2937';
-                // Build a translucent tint of the type color (overlay).
-                var tint = 'color-mix(in srgb, ' + style.color + ' 14%, transparent)';
-                toast.style.background = surface;
-                toast.style.borderLeft = '5px solid ' + style.color;
-                toast.style.color = textColor;
-
-                toast.innerHTML =
-                    '<div class="d-flex">' +
-                        '<div class="toast-body d-flex align-items-center" style="background:' + tint + ';">' +
-                            '<i class="fas ' + style.icon + ' me-2" style="color:' + style.color + ';"></i>' +
-                            '<span style="color:' + textColor + ';">' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                        '</div>' +
-                        '<button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
-                    '</div>';
-                container.appendChild(toast);
-
+            function showToastEl(toast) {
                 if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
-                    var t = new bootstrap.Toast(toast);
+                    var sticky = toast.getAttribute('data-sticky') === '1';
+                    var t = new bootstrap.Toast(toast, { autohide: !sticky, delay: 5000 });
                     t.show();
                 } else {
+                    toast.classList.add('show');
                     toast.style.display = 'block';
-                    setTimeout(function () { toast.classList.add('fade'); setTimeout(function () { toast.remove(); }, 600); }, 5000);
+                    if (toast.getAttribute('data-sticky') !== '1') {
+                        setTimeout(function () {
+                            toast.classList.add('fade');
+                            setTimeout(function () { toast.remove(); }, 600);
+                        }, 5000);
+                    }
                 }
-
-                // Remove the original inline alert now that it's been floated.
-                if (alertEl && alertEl.parentNode) alertEl.remove();
-            });
+            }
+            window.sdcodexNotify = function (message, category) {
+                var container = document.getElementById('flash-toast-container');
+                if (!container) return;
+                var cat = (category === 'error') ? 'danger' : (category || 'info');
+                if (['success', 'info', 'warning', 'danger'].indexOf(cat) < 0) cat = 'info';
+                var sticky = (cat === 'danger') ? '1' : '0';
+                var toast = document.createElement('div');
+                toast.className = 'toast flash-toast flash-' + cat;
+                toast.setAttribute('role', 'status');
+                toast.setAttribute('aria-live', 'polite');
+                toast.setAttribute('data-category', cat);
+                toast.setAttribute('data-sticky', sticky);
+                var span = document.createElement('span');
+                span.className = 'flash-text';
+                span.textContent = message;
+                var icon = document.createElement('i');
+                icon.className = 'fas ' + (ICONS[cat] || ICONS.info) + ' me-2 flash-icon';
+                var body = document.createElement('div');
+                body.className = 'toast-body d-flex align-items-center flex-grow-1';
+                body.appendChild(icon);
+                body.appendChild(span);
+                var close = document.createElement('button');
+                close.type = 'button';
+                close.className = 'btn-close me-2 m-auto';
+                close.setAttribute('data-bs-dismiss', 'toast');
+                close.setAttribute('aria-label', 'Close');
+                var row = document.createElement('div');
+                row.className = 'd-flex align-items-center';
+                row.appendChild(body);
+                row.appendChild(close);
+                toast.appendChild(row);
+                container.appendChild(toast);
+                showToastEl(toast);
+            };
+            document.querySelectorAll('#flash-toast-container .flash-toast').forEach(showToastEl);
         })();
     </script>
     {% block scripts %}{% endblock %}

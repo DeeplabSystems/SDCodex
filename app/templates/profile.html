@@ -9,17 +9,6 @@
         <p class="text-secondary mb-0">Edit your email, display name, and profile picture</p>
     </div>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    {% for category, message in messages %}
-    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show mb-4 shadow-sm" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-    {% endfor %}
-    {% endif %}
-    {% endwith %}
-
     <div class="row">
         <!-- Avatar preview -->
         <div class="col-md-4">

@@ -269,3 +269,104 @@ def test_poll_updater_progress_removed():
     DOCKER_API.request = boom
     p = SELFUPDATE.poll_updater_progress("gone")
     assert p["status"] == "removed"
+
+
+# --------------------------------------------------------------------------- #
+# Build-context assembly (regression: must never buffer GBs of runtime data)
+# --------------------------------------------------------------------------- #
+
+import io as _io
+import tarfile as _tarfile
+
+
+def _make_fake_app(root):
+    os.makedirs(os.path.join(root, "app"), exist_ok=True)
+    with open(os.path.join(root, "Dockerfile"), "w") as fh:
+        fh.write("FROM python:3.11-slim\n")
+    with open(os.path.join(root, "app", "routes.py"), "w") as fh:
+        fh.write("x = 1\n")
+
+
+def _tar_names(raw):
+    with _tarfile.open(fileobj=_io.BytesIO(raw), mode="r") as tar:
+        return tar.getnames()
+
+
+def test_tar_app_context_excludes_runtime_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_FILE_MB", "1")
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_CONTEXT_MB", "256")
+    app = str(tmp_path)
+    _make_fake_app(app)
+    # Runtime data that must never be baked in / read into RAM.
+    os.makedirs(os.path.join(app, "models"), exist_ok=True)
+    with open(os.path.join(app, "models", "big.safetensors"), "wb") as fh:
+        fh.truncate(4 * 1024 * 1024)
+    os.makedirs(os.path.join(app, "Huggingface"), exist_ok=True)
+    with open(os.path.join(app, "Huggingface", "cache.bin"), "wb") as fh:
+        fh.write(b"0" * 16)
+    os.makedirs(os.path.join(app, ".git"), exist_ok=True)
+    with open(os.path.join(app, ".git", "HEAD"), "w") as fh:
+        fh.write("ref: refs/heads/main\n")
+    with open(os.path.join(app, "sdcodex.db"), "wb") as fh:
+        fh.write(b"0" * 16)
+    with open(os.path.join(app, "huge_weights.pt"), "wb") as fh:
+        fh.truncate(2 * 1024 * 1024)  # suffix-excluded (weights) regardless of size
+    with open(os.path.join(app, "huge_blob.dat"), "wb") as fh:
+        fh.truncate(2 * 1024 * 1024)  # over the 1 MB per-file cap
+    with open(os.path.join(app, "notes.log"), "w") as fh:
+        fh.write("log\n")
+
+    tar_path, stats = SELFUPDATE._tar_app_context(app)
+    try:
+        with open(tar_path, "rb") as fh:
+            raw = fh.read()
+    finally:
+        os.unlink(tar_path)
+    names = _tar_names(raw)
+    assert "Dockerfile" in names
+    assert "app/routes.py" in names
+    assert not any(n.startswith(("models/", "Huggingface/", ".git/")) for n in names)
+    assert "sdcodex.db" not in names
+    assert "notes.log" not in names
+    assert "huge_weights.pt" not in names
+    assert "huge_blob.dat" not in names
+    assert any(r == "huge_blob.dat" for r, _ in stats["skipped_large"])
+    # Sanity: context stays tiny, not gigabytes.
+    assert stats["bytes"] < 1024 * 1024
+
+
+def test_tar_app_context_total_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_FILE_MB", "8")
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_CONTEXT_MB", "16")
+    app = str(tmp_path)
+    _make_fake_app(app)
+    for i in range(18):
+        with open(os.path.join(app, f"chunk{i}.dat"), "wb") as fh:
+            fh.truncate(1024 * 1024)  # sparse 1 MB files
+    with pytest.raises(SELFUPDATE.SelfUpdateError) as excinfo:
+        SELFUPDATE._tar_app_context(app)
+    assert "exceed" in str(excinfo.value)
+
+
+def test_build_sdcodex_image_posts_context_and_cleans_up(tmp_path, monkeypatch):
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_FILE_MB", "8")
+    monkeypatch.setenv("SDCODEX_BUILD_MAX_CONTEXT_MB", "256")
+    app = str(tmp_path)
+    _make_fake_app(app)
+    seen = {}
+
+    def fake_raw(method, path, body=None, headers=None, timeout=60):
+        seen["method"] = method
+        seen["path"] = path
+        seen["bytes"] = body
+        return b'{"stream":"ok"}'
+
+    monkeypatch.setattr(DOCKER_API, "request_raw", fake_raw)
+    before = {p for p in os.listdir(tempfile.gettempdir()) if p.startswith("sdcodex-build-")}
+    tag, stats = SELFUPDATE._build_sdcodex_image("local:test", app_root=app)
+    after = {p for p in os.listdir(tempfile.gettempdir()) if p.startswith("sdcodex-build-")}
+    assert tag == "local:test"
+    assert stats["files"] >= 2
+    assert seen["method"] == "POST" and "/build?" in seen["path"]
+    assert "Dockerfile" in _tar_names(seen["bytes"])
+    assert after <= before  # temp tar unlinked

@@ -92,15 +92,29 @@ def _build_updater_image(ctx):
 
 def _build_sdcodex_image(repo_tag, app_root="/app"):
     """Build a fresh, per-user SDCodex image from this container's live /app
-    tree via the classic /build API. Returns the image tag. This is what makes
-    self-update reflect each user's installed plugins/requirements (the build
-    context includes their mounted app/requirements/entrypoint and the current
-    Dockerfile), instead of pulling a generic published image."""
+    tree via the classic /build API. Returns ``(image_tag, stats)``. This is
+    what makes self-update reflect each user's installed plugins/requirements
+    (the build context includes their mounted app/requirements/entrypoint and
+    the current Dockerfile), instead of pulling a generic published image."""
     if not os.path.isfile(os.path.join(app_root, "Dockerfile")):
         raise SelfUpdateError(
             f"No Dockerfile found at {app_root}/Dockerfile to build the image from."
         )
-    tar_bytes = _tar_app_context(app_root)
+    tar_path, stats = _tar_app_context(app_root)
+    try:
+        _post_build_context(repo_tag, tar_path)
+    finally:
+        try:
+            os.unlink(tar_path)
+        except OSError:
+            pass
+    return repo_tag, stats
+
+
+def _post_build_context(repo_tag, tar_path):
+    """POST a pre-assembled tar build context to the Docker /build API."""
+    with open(tar_path, "rb") as fh:
+        tar_bytes = fh.read()
     docker_api.request_raw(
         "POST",
         f"/build?dockerfile=Dockerfile&t={quote(repo_tag, safe='/')}",
@@ -108,7 +122,6 @@ def _build_sdcodex_image(repo_tag, app_root="/app"):
         headers={"Content-Type": "application/x-tar"},
         timeout=1200,
     )
-    return repo_tag
 
 
 # Files that plugin installs re-write per-user and that a git pull must never
@@ -230,55 +243,140 @@ def _tar_directory(dirpath):
 
 
 # Entries under /app that must never be baked into a per-user image: runtime
-# secrets/config, and large/generated directories that are bind-mounted anyway.
+# secrets/config, and large/generated directories that are bind-mounted anyway
+# (model weights, download dirs, caches, DBs, plugin code). Keep this in sync
+# with .gitignore/.dockerignore — anything big enough to OOM the builder (the
+# old code read the whole tree into RAM, ballooning gunicorn past 6 GB) or to
+# bloat the built image must be listed here.
 _BUILD_IGNORE = {
     ".env", "docker-compose.yml", "docker-compose.override.yml", "env.example",
     ".ferrite", ".git", "__pycache__", ".pytest_cache", ".dockerignore",
     "db", "mounts", "config", "tasks", "downloads", "plugins", "updater",
+    "models", "MODELS", "Huggingface", "huggingface", "comfyui", "rembg_output",
+    ".gallery", "venv", ".venv", "env", "ENV", "node_modules",
+    ".vscode", ".idea",
     "static/downloads", "static/uploads", "static/saved_gallery",
+    "app/static/downloads", "app/static/uploads", "app/static/saved_gallery",
 }
-_BUILD_IGNORE_SUFFIX = (".pyc", ".pyo", ".md")
+# Runtime-data file types: never bake weights/DBs/archives/logs into the image
+# (they live on mounted volumes at runtime).
+_BUILD_IGNORE_SUFFIX = (
+    ".pyc", ".pyo", ".md",
+    ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".onnx", ".gguf",
+    ".db", ".sqlite3", ".sqlite-wal", ".sqlite-shm",
+    ".zip", ".tar", ".gz", ".tgz", ".7z",
+    ".log",
+)
+
+
+def _max_file_bytes():
+    """Largest single file allowed into the build context (rest are skipped)."""
+    try:
+        mb = int(os.environ.get("SDCODEX_BUILD_MAX_FILE_MB", "") or 8)
+    except ValueError:
+        mb = 8
+    return max(mb, 1) * 1024 * 1024
+
+
+def _max_context_bytes():
+    """Hard cap on the total build-context size (fail loudly instead of OOM)."""
+    try:
+        mb = int(os.environ.get("SDCODEX_BUILD_MAX_CONTEXT_MB", "") or 256)
+    except ValueError:
+        mb = 256
+    return max(mb, 16) * 1024 * 1024
 
 
 def _tar_app_context(app_root="/app"):
     """Assemble a clean Docker build context from the live /app tree (the app's
     own code + the user's mounted per-user files), excluding secrets and the
-    large bind-mounted media dirs. Used so self-update *builds* an image that
-    reflects each user's installed plugins/requirements rather than pulling a
-    generic published image."""
-    files = []
+    large bind-mounted media dirs. Streams the tar to a temp file (constant
+    memory — never buffers file contents in RAM) and returns
+    ``(tar_path, stats)``; the caller must unlink ``tar_path`` when done.
+
+    Directories that are mount points (e.g. the ``${MODELS}`` volume over
+    ``app/static/downloads``, plugin volume mounts) are pruned: volumes are
+    provided at runtime, never baked in. Files larger than
+    ``_max_file_bytes()`` are skipped (recorded in stats). If the total would
+    exceed ``_max_context_bytes()`` a ``SelfUpdateError`` is raised instead of
+    letting the worker OOM."""
+    import tempfile
 
     def _rel(child_abs):
         return os.path.relpath(child_abs, app_root).replace(os.sep, "/")
 
     def _pruned(rel):
-        # Ignore if the whole relative path is listed, or its top component is.
-        parts = rel.split("/")
-        return rel in _BUILD_IGNORE or parts[0] in _BUILD_IGNORE
+        # Ignore if the relative path is listed or lives under a listed dir.
+        return any(rel == ign or rel.startswith(ign + "/") for ign in _BUILD_IGNORE)
 
-    for dirpath, dirnames, filenames in os.walk(app_root):
-        dirnames[:] = [d for d in dirnames if not _pruned(_rel(os.path.join(dirpath, d)))]
-        for fn in filenames:
-            rel = _rel(os.path.join(dirpath, fn))
-            if _pruned(rel) or fn.endswith(_BUILD_IGNORE_SUFFIX):
-                continue
-            full = os.path.join(dirpath, fn)
-            try:
-                data = open(full, "rb").read()
-            except OSError:
-                continue
-            files.append((rel, data, os.access(full, os.X_OK)))
-    files.sort(key=lambda x: x[0])
-    out = io.BytesIO()
-    with tarfile.open(fileobj=out, mode="w") as tar:
-        for rel, data, xok in files:
-            info = tarfile.TarInfo(rel)
-            info.size = len(data)
-            info.mode = 0o755 if xok else 0o644
-            info.mtime = int(time.time())
-            tar.addfile(info, io.BytesIO(data))
-    out.seek(0)
-    return out.getvalue()
+    max_file = _max_file_bytes()
+    max_total = _max_context_bytes()
+    stats = {"files": 0, "bytes": 0, "skipped_large": [], "skipped_mounts": []}
+    largest = []  # (size, rel) of included files, for diagnostics
+
+    fd, tar_path = tempfile.mkstemp(prefix="sdcodex-build-", suffix=".tar")
+    os.close(fd)
+    try:
+        with open(tar_path, "wb") as fh:
+            with tarfile.open(fileobj=fh, mode="w") as tar:
+                for dirpath, dirnames, filenames in os.walk(app_root):
+                    kept = []
+                    for d in dirnames:
+                        full = os.path.join(dirpath, d)
+                        rel = _rel(full)
+                        if _pruned(rel):
+                            continue
+                        # Never descend into mounted volumes: their content is
+                        # GBs of runtime data (models, downloads, caches) that
+                        # must not be read into RAM or baked into the image.
+                        if os.path.ismount(full):
+                            stats["skipped_mounts"].append(rel)
+                            continue
+                        kept.append(d)
+                    dirnames[:] = kept
+                    for fn in filenames:
+                        rel = _rel(os.path.join(dirpath, fn))
+                        if _pruned(rel) or fn.endswith(_BUILD_IGNORE_SUFFIX):
+                            continue
+                        full = os.path.join(dirpath, fn)
+                        try:
+                            size = os.path.getsize(full)
+                        except OSError:
+                            continue
+                        if size > max_file:
+                            stats["skipped_large"].append((rel, size))
+                            continue
+                        if stats["bytes"] + size > max_total:
+                            top = sorted(largest, reverse=True)[:5]
+                            detail = ", ".join(
+                                f"{r} ({s / 1048576:.1f} MB)" for s, r in top
+                            )
+                            raise SelfUpdateError(
+                                f"Build context would exceed {max_total / 1048576:.0f} MB "
+                                f"({stats['files']} files, {stats['bytes'] / 1048576:.1f} MB so far). "
+                                "Large runtime dirs (models/downloads/caches) must stay on "
+                                f"mounted volumes, not baked into the image. Largest files: {detail}."
+                            )
+                        try:
+                            with open(full, "rb") as src:
+                                info = tarfile.TarInfo(rel)
+                                info.size = size
+                                info.mode = 0o755 if os.access(full, os.X_OK) else 0o644
+                                info.mtime = int(time.time())
+                                tar.addfile(info, src)
+                        except OSError:
+                            continue
+                        stats["files"] += 1
+                        stats["bytes"] += size
+                        largest.append((size, rel))
+    except BaseException:
+        try:
+            os.unlink(tar_path)
+        except OSError:
+            pass
+        raise
+    stats["largest"] = sorted(largest, reverse=True)[:5]
+    return tar_path, stats
 
 
 def _updater_dir_candidates():
@@ -462,10 +560,42 @@ def self_update_generator(new_image):
             yield step("pulling_image", "active",
                        f"Building {local_tag} from this container's installed state...")
             yield log(f"Building per-user image {local_tag} (no generic pull)...")
+            # Assemble the build context first and report its size *before* the
+            # blocking POST, so the UI shows progress instead of sitting on
+            # "Preparing..." while Docker builds (which takes minutes).
             try:
-                _build_sdcodex_image(local_tag)
+                tar_path, stats = _tar_app_context()
+            except SelfUpdateError as exc:
+                raise exc
+            except Exception as exc:  # noqa: BLE001
+                raise SelfUpdateError(f"Failed to assemble build context: {exc}") from exc
+            mb = stats["bytes"] / 1048576
+            summary = f"Build context: {stats['files']} files, {mb:.1f} MB"
+            skipped = []
+            if stats["skipped_large"]:
+                big = sorted(stats["skipped_large"], key=lambda x: -x[1])[:3]
+                skipped.append(
+                    f"{len(stats['skipped_large'])} large file(s) skipped "
+                    f"(e.g. {', '.join(r for r, _ in big)})"
+                )
+            if stats["skipped_mounts"]:
+                skipped.append(
+                    f"{len(stats['skipped_mounts'])} mounted volume(s) skipped "
+                    f"({', '.join(stats['skipped_mounts'][:3])})"
+                )
+            if skipped:
+                summary += " — " + "; ".join(skipped)
+            yield log(summary)
+            yield log("Sending build context to Docker (image build takes a few minutes)...")
+            try:
+                _post_build_context(local_tag, tar_path)
             except Exception as exc:
                 raise SelfUpdateError(f"Failed to build image: {exc}") from exc
+            finally:
+                try:
+                    os.unlink(tar_path)
+                except OSError:
+                    pass
             yield step("pulling_image", "completed", "Image built")
             yield log("Image built from current state")
             new_image = local_tag
