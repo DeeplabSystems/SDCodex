@@ -528,10 +528,17 @@ def build_network_env(info):
     return envs
 
 
-def cleanup_previous():
+def cleanup_previous(keep_tag=None):
     """Remove leftover updating containers, stale updater sidecars, and stale
     per-user ``sdupdate-*`` images from earlier attempts (each is gigabytes —
-    without this every retry leaks another image onto the daemon disk)."""
+    without this every retry leaks another image onto the daemon disk).
+
+    ``keep_tag`` (e.g. the image tag that was just built) is never deleted —
+    without this the post-build cleanup would remove the fresh image and the
+    subsequent ``/containers/create`` would fail with ``No such image``."""
+
+    def _keep(tags):
+        return bool(keep_tag) and keep_tag in (tags or [])
     try:
         ctrs = docker_api.request("GET", "/containers/json?all=true") or []
     except docker_api.DockerApiError:
@@ -563,6 +570,8 @@ def cleanup_previous():
             continue
         tags = img.get("RepoTags") or []
         if not any(t.startswith("sdcodex-selfupdate:sdupdate-") for t in tags):
+            continue
+        if _keep(tags):
             continue
         try:
             docker_api.request("DELETE", f"/images/{img.get('Id')}?force=true")
@@ -670,6 +679,12 @@ def self_update_generator(new_image):
                 except OSError:
                     pass
             logger.info("Self-update: image %s built", local_tag)
+            if not _image_exists(local_tag):
+                raise SelfUpdateError(
+                    f"Image build finished but '{local_tag}' is not on the daemon. "
+                    "The build output above should show the failure; otherwise check "
+                    "`docker logs sdcodex` for the daemon's response."
+                )
             yield step("pulling_image", "completed", "Image built")
             yield log("Image built from current state")
             new_image = local_tag
@@ -701,7 +716,7 @@ def self_update_generator(new_image):
         # 4) create replacement container (temp name, no networking)
         yield step("creating_container", "active", "Creating new container...")
         yield log("Cleaning up previous updater containers...")
-        cleanup_previous()
+        cleanup_previous(keep_tag=new_image)
 
         temp_name = f"{name}-updating"
         create_config.setdefault("Labels", {})[CREATE_LABEL] = "true"

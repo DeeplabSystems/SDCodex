@@ -412,3 +412,24 @@ def test_cleanup_previous_prunes_stale_sdupdate_images(monkeypatch):
     deletes = [p for m, p in calls if m == "DELETE"]
     assert any("sha256:old" in p for p in deletes), deletes
     assert not any("sha256:keep" in p for p in deletes), deletes
+
+
+def test_cleanup_previous_keeps_freshly_built_image(monkeypatch):
+    calls = []
+
+    def fake_request(method, path, **kw):
+        calls.append((method, path))
+        if path == "/containers/json?all=true":
+            return []
+        if path == "/images/json":
+            return [
+                {"Id": "sha256:new", "RepoTags": ["sdcodex-selfupdate:sdupdate-999"]},
+                {"Id": "sha256:old", "RepoTags": ["sdcodex-selfupdate:sdupdate-111"]},
+            ]
+        return None
+
+    monkeypatch.setattr(DOCKER_API, "request", fake_request)
+    SELFUPDATE.cleanup_previous(keep_tag="sdcodex-selfupdate:sdupdate-999")
+    deletes = [p for m, p in calls if m == "DELETE"]
+    assert not any("sha256:new" in p for p in deletes), deletes
+    assert any("sha256:old" in p for p in deletes), deletes
