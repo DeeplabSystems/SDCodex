@@ -1,8 +1,8 @@
 /* CLEAN LIGHT/DARK THEME - COMPREHENSIVE STYLING */
 :root {
-  /* Base Apple-like theme colors */
-  --primary: #009be3;
-  --primary-hover: #0077ed;
+  /* Base grey palette (global theming: blue accents desaturated to grey) */
+  --primary: #6c757d;
+  --primary-hover: #495057;
   --bg: #f5f5f7;
   --card-bg: #ffffff;
   --text: #1d1d1f;
@@ -13,7 +13,7 @@
   --warning: #ff9f0a;
   --input-bg: #ffffff;
   --danger: #ff3b30;
-  --info: #32ade6;
+  --info: #6c757d;
 
   /* Legacy mapping for Bootstrap and custom classes */
   --background: var(--bg);
@@ -27,7 +27,7 @@
   --card-dark: var(--card-bg);
   --border-dark: var(--border);
 
-  --primary-light: #5ac8fa;
+  --primary-light: #495057;
   --primary-dark: var(--primary-hover);
   --secondary: var(--primary);
   --secondary-dark: var(--primary-hover);
@@ -43,13 +43,13 @@
   --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   --hover-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
   --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  --glow: 0 0 12px rgba(0, 113, 227, 0.2);
+  --glow: 0 0 12px rgba(108, 117, 125, 0.25);
   --card-hover-transform: translateY(-4px);
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
-  /* Base Apple-like dark theme colors */
+  /* Grey palette for dark theme */
   --bg: #1c1c1e;
   --card-bg: #2c2c2e;
   --text: #f5f5f7;
@@ -57,12 +57,12 @@
   --border: #3a3a3c;
   --nav-hover: rgba(255, 255, 255, 0.18);
   --input-bg: #2c2c2e;
-  --primary: #009be3;
-  --primary-hover: #0071e3;
+  --primary: #9a9aa0;
+  --primary-hover: #86868b;
   --danger: #ff453a;
   --success: #32d74b;
   --warning: #ff9f0a;
-  --info: #64d2ff;
+  --info: #a1a1a6;
 
   /* Bootstrap 5 Theme Variables Override */
   --bs-body-bg: #1c1c1e;
@@ -85,8 +85,8 @@
   --card-dark: var(--card-bg);
   --border-dark: var(--border);
 
-  --primary-light: #009be3;
-  --primary-dark: #009be3;
+  --primary-light: #c7c7cc;
+  --primary-dark: #86868b;
   --secondary: var(--primary);
   --secondary-dark: var(--primary-hover);
 
@@ -161,7 +161,7 @@
 
 [data-theme='dark'] .nav-tabs .nav-link.active {
   background-color: var(--card-bg, #2c2c2e) !important;
-  color: var(--primary, #009be3) !important;
+  color: var(--primary, #6c757d) !important;
   border-color: var(--border, #3a3a3c) var(--border, #3a3a3c) var(--card-bg, #2c2c2e) !important;
 }
 
@@ -268,7 +268,7 @@
 .modal-caption-label {
     font-size: 12px;
     text-transform: uppercase;
-    color: var(--primary, #007bff);
+    color: var(--primary, #6c757d);
     margin-top: 15px;
     margin-bottom: 5px;
     font-weight: bold;
@@ -438,7 +438,7 @@ a:hover {
 .navbar .form-control:focus {
   background-color: var(--input-bg);
   width: 250px;
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.1);
+  box-shadow: 0 0 0 4px rgba(108, 117, 125, 0.15);
   border-color: var(--primary);
 }
 
@@ -618,7 +618,7 @@ a:hover {
 
 .badge.bg-info:hover {
   transform: translateY(-2px);
-  box-shadow: 0 3px 8px rgba(0, 176, 255, 0.3);
+  box-shadow: 0 3px 8px rgba(108, 117, 125, 0.35);
 }
 
 /* Category Card Styling */
@@ -753,22 +753,22 @@ a:hover {
 .btn-primary:focus {
   background-color: var(--primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 113, 227, 0.2);
+  box-shadow: 0 4px 10px rgba(108, 117, 125, 0.3);
   color: white;
 }
 
 .btn-go {
-  background-color: var(--primary, #009be3) !important;
+  background-color: var(--primary, #6c757d) !important;
   color: #ffffff !important;
-  border: 1px solid var(--primary-hover, #0071e3) !important;
+  border: 1px solid var(--primary-hover, #495057) !important;
   font-weight: 600 !important;
 }
 
 .btn-go:hover,
 .btn-go:focus {
-  background-color: var(--primary-hover, #0071e3) !important;
+  background-color: var(--primary-hover, #495057) !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 10px rgba(0, 113, 227, 0.3) !important;
+  box-shadow: 0 4px 10px rgba(108, 117, 125, 0.35) !important;
 }
 
 .btn-neutral {
@@ -852,7 +852,7 @@ a:hover {
   background-color: var(--primary);
   color: white;
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 113, 227, 0.2);
+  box-shadow: 0 4px 10px rgba(108, 117, 125, 0.3);
 }
 
 .btn-outline-light {
@@ -953,7 +953,7 @@ a:hover {
 .form-control:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.1);
+  box-shadow: 0 0 0 4px rgba(108, 117, 125, 0.15);
   background-color: var(--input-bg);
 }
 
@@ -974,7 +974,7 @@ a:hover {
 
 .form-check-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 0.25rem rgba(124, 77, 255, 0.25);
+  box-shadow: 0 0 0 0.25rem rgba(108, 117, 125, 0.25);
 }
 
 .form-check-label {
@@ -1133,7 +1133,7 @@ textarea::placeholder {
 }
 
 .pagination .page-item:not(.active) .page-link:hover {
-  background-color: rgba(124, 77, 255, 0.2);
+  background-color: rgba(108, 117, 125, 0.2);
   color: var(--primary);
   transform: translateY(-2px);
 }
@@ -1162,7 +1162,7 @@ textarea::placeholder {
 
 .accordion-button:not(.collapsed) {
   color: var(--primary) !important;
-  background-color: rgba(124, 77, 255, 0.1) !important;
+  background-color: rgba(108, 117, 125, 0.12) !important;
 }
 
 .accordion-button:focus {
@@ -1219,7 +1219,7 @@ textarea::placeholder {
 }
 
 .alert-primary {
-  background-color: rgba(124, 77, 255, 0.1);
+  background-color: rgba(108, 117, 125, 0.12);
   color: var(--primary-light);
 }
 
@@ -1244,7 +1244,7 @@ textarea::placeholder {
 }
 
 .alert-info {
-  background-color: rgba(0, 176, 255, 0.1);
+  background-color: rgba(108, 117, 125, 0.12);
   color: var(--info);
 }
 
