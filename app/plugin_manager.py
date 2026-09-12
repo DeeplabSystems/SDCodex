@@ -388,7 +388,32 @@ class PluginManager:
         cands.append(os.path.join(os.path.dirname(self.plugins_dir), "db", "core.rev"))
         return [c for c in cands if c]
 
+    def _local_git_head(self):
+        """Full SHA of the deployed checkout (``/app``), if it's a git repo.
+
+        Used as the ground truth for ``local_sha`` so the header badge clears
+        after a manual ``git pull`` + rebuild — the frozen ``db/core.rev``
+        stamp alone would keep reporting an update forever.
+        """
+        app_root = os.path.dirname(os.path.abspath(self.plugins_dir or "")) or "/app"
+        try:
+            out = subprocess.run(
+                ["git", "-C", app_root, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            )
+            sha = (out.stdout or "").strip()
+            if out.returncode == 0 and len(sha) >= 7:
+                return sha
+        except Exception:
+            pass
+        return ""
+
     def _read_core_local_rev(self):
+        # Prefer the live checkout HEAD (self-heals after manual rebuilds);
+        # fall back to the frozen stamp for non-git deployments.
+        head = self._local_git_head()
+        if head:
+            return head
         for p in self._core_rev_dirs():
             if p and os.path.isfile(p):
                 try:

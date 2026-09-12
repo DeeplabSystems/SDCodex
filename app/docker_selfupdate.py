@@ -20,6 +20,8 @@ clear message instead of attempting the swap.
 """
 
 import io
+import json
+import logging
 import os
 import re
 import subprocess
@@ -28,6 +30,8 @@ import time
 from urllib.parse import quote
 
 from . import docker_api
+
+logger = logging.getLogger(__name__)
 
 # Image used to create the updater sidecar container. Override with
 # SDCODEX_UPDATER_IMAGE if you publish your own.
@@ -113,15 +117,55 @@ def _build_sdcodex_image(repo_tag, app_root="/app"):
 
 def _post_build_context(repo_tag, tar_path):
     """POST a pre-assembled tar build context to the Docker /build API."""
-    with open(tar_path, "rb") as fh:
-        tar_bytes = fh.read()
-    docker_api.request_raw(
-        "POST",
+    for _ in _stream_build(repo_tag, tar_path):
+        pass
+
+
+def _stream_build(repo_tag, tar_path):
+    """Yield condensed human-readable image-build progress lines.
+
+    Parses the daemon's ``/build`` JSON stream incrementally (so callers can
+    forward progress live instead of going silent for the 10+ minutes a full
+    image build takes) and raises :class:`SelfUpdateError` if the build
+    itself fails — previously a failed build was invisible and treated as
+    success because only the HTTP status was checked.
+    """
+    last_step = None
+    for raw in docker_api.post_tar_stream(
         f"/build?dockerfile=Dockerfile&t={quote(repo_tag, safe='/')}",
-        body=tar_bytes,
+        tar_path,
         headers={"Content-Type": "application/x-tar"},
-        timeout=1200,
-    )
+        timeout=3600,
+    ):
+        try:
+            obj = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        err = obj.get("error") or (obj.get("errorDetail") or {}).get("message")
+        if err:
+            raise SelfUpdateError(f"Image build failed: {err}")
+        stream = (obj.get("stream") or "").strip()
+        status = (obj.get("status") or "").strip()
+        text = status or stream
+        if not text:
+            continue
+        step_m = re.match(r"Step\s+(\d+)/(\d+)", text)
+        if step_m:
+            key = step_m.group(0)
+            if key != last_step:
+                last_step = key
+                rest = text[len(key):].strip(" :")
+                yield f"[{key}]{(' ' + rest) if rest else ''}"
+            continue
+        # Sparse progress: only interesting one-liners, capped in length.
+        lowered = text.lower()
+        if any(k in lowered for k in ("error", "failed", "warning", "downloading",
+                                      "extracting", "naming to", "writing image")):
+            yield text[:220]
+    if last_step is None:
+        yield "Build output received (no step markers parsed)."
 
 
 # Files that plugin installs re-write per-user and that a git pull must never
@@ -485,11 +529,13 @@ def build_network_env(info):
 
 
 def cleanup_previous():
-    """Remove leftover updating containers and stale updater sidecars."""
+    """Remove leftover updating containers, stale updater sidecars, and stale
+    per-user ``sdupdate-*`` images from earlier attempts (each is gigabytes —
+    without this every retry leaks another image onto the daemon disk)."""
     try:
         ctrs = docker_api.request("GET", "/containers/json?all=true") or []
     except docker_api.DockerApiError:
-        return
+        ctrs = []
     for c in ctrs:
         labels = c.get("Labels") or {}
         if not (labels.get(CREATE_LABEL) == "true" or labels.get(UPDATER_LABEL) == "true"):
@@ -502,6 +548,25 @@ def cleanup_previous():
                 except docker_api.DockerApiError:
                     pass
             docker_api.request("DELETE", f"/containers/{cid}?force=true")
+        except docker_api.DockerApiError:
+            pass
+    # Prune our own stale per-user build images (unique tag prefix, only ever
+    # created by this flow). Best-effort: never fail preparation over cleanup.
+    try:
+        images = docker_api.request("GET", "/images/json") or []
+    except docker_api.DockerApiError:
+        return
+    if not isinstance(images, list):
+        return
+    for img in images:
+        if not isinstance(img, dict):
+            continue
+        tags = img.get("RepoTags") or []
+        if not any(t.startswith("sdcodex-selfupdate:sdupdate-") for t in tags):
+            continue
+        try:
+            docker_api.request("DELETE", f"/images/{img.get('Id')}?force=true")
+            logger.info("Self-update: pruned stale image %s", tags)
         except docker_api.DockerApiError:
             pass
 
@@ -528,6 +593,7 @@ def self_update_generator(new_image):
 
     updater_id = None
     try:
+        logger.info("Self-update requested (image=%s)", new_image)
         if not docker_api.get_own_container_id():
             raise SelfUpdateError("SDCodex is not running in Docker; cannot self-update.")
         if docker_api.is_docker_writable() is False:
@@ -551,6 +617,7 @@ def self_update_generator(new_image):
                 yield log("Marking plugin-managed files (override/env/requirements) as frozen → git pull...")
                 pulled = _git_pull_app()
                 yield log(pulled)
+                logger.info("Self-update: %s", pulled)
             except SelfUpdateError as exc:
                 raise exc
             except Exception as exc:  # noqa: BLE001
@@ -586,16 +653,23 @@ def self_update_generator(new_image):
             if skipped:
                 summary += " — " + "; ".join(skipped)
             yield log(summary)
-            yield log("Sending build context to Docker (image build takes a few minutes)...")
+            logger.info("Self-update: %s -> building %s", summary, local_tag)
+            yield log("Sending build context to Docker (a full image build takes several minutes)...")
             try:
-                _post_build_context(local_tag, tar_path)
-            except Exception as exc:
+                for prog in _stream_build(local_tag, tar_path):
+                    yield log(prog)
+            except SelfUpdateError as exc:
+                raise exc
+            except docker_api.DockerApiError as exc:
+                raise SelfUpdateError(f"Image build failed: {exc}") from exc
+            except Exception as exc:  # noqa: BLE001
                 raise SelfUpdateError(f"Failed to build image: {exc}") from exc
             finally:
                 try:
                     os.unlink(tar_path)
                 except OSError:
                     pass
+            logger.info("Self-update: image %s built", local_tag)
             yield step("pulling_image", "completed", "Image built")
             yield log("Image built from current state")
             new_image = local_tag
@@ -676,12 +750,16 @@ def self_update_generator(new_image):
         yield log(f"Updater started: {updater_id[:12]}")
         yield log("Handing off to updater sidecar...")
         yield step("launching_updater", "completed", "Updater launched")
+        logger.info("Self-update: handed off to updater %s", updater_id[:12])
         yield {"event": "launched", "data": {"updaterId": updater_id}}
     except SelfUpdateError as exc:
+        logger.warning("Self-update failed: %s", exc)
         yield error_ev(str(exc))
     except docker_api.DockerApiError as exc:
+        logger.warning("Self-update failed: %s", exc)
         yield error_ev(str(exc))
     except Exception as exc:  # noqa: BLE001 - surface any prep failure
+        logger.exception("Self-update preparation crashed")
         if updater_id:
             try:
                 docker_api.request("DELETE", f"/containers/{updater_id}?force=true")

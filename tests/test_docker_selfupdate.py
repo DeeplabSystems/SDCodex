@@ -355,18 +355,60 @@ def test_build_sdcodex_image_posts_context_and_cleans_up(tmp_path, monkeypatch):
     _make_fake_app(app)
     seen = {}
 
-    def fake_raw(method, path, body=None, headers=None, timeout=60):
-        seen["method"] = method
+    def fake_stream(path, tar_path, headers=None, timeout=1200):
         seen["path"] = path
-        seen["bytes"] = body
-        return b'{"stream":"ok"}'
+        with open(tar_path, "rb") as fh:
+            seen["bytes"] = fh.read()
+        yield b'{"stream":"Step 1/2 : FROM python"}'
+        yield b'{"stream":"Successfully built abc"}'
 
-    monkeypatch.setattr(DOCKER_API, "request_raw", fake_raw)
+    monkeypatch.setattr(DOCKER_API, "post_tar_stream", fake_stream)
     before = {p for p in os.listdir(tempfile.gettempdir()) if p.startswith("sdcodex-build-")}
     tag, stats = SELFUPDATE._build_sdcodex_image("local:test", app_root=app)
     after = {p for p in os.listdir(tempfile.gettempdir()) if p.startswith("sdcodex-build-")}
     assert tag == "local:test"
     assert stats["files"] >= 2
-    assert seen["method"] == "POST" and "/build?" in seen["path"]
+    assert "/build?" in seen["path"]
     assert "Dockerfile" in _tar_names(seen["bytes"])
     assert after <= before  # temp tar unlinked
+
+
+def test_stream_build_parses_steps_and_surfaces_errors(monkeypatch):
+    lines = [
+        b'{"stream":"Step 1/3 : FROM python:3.11-slim"}',
+        b'{"stream":"Step 1/3 : FROM python:3.11-slim"}',  # duplicate -> deduped
+        b'{"status":"Downloading","progressDetail":{"current":5,"total":10}}',
+        b'{"stream":"Successfully built abc123"}',
+    ]
+    monkeypatch.setattr(DOCKER_API, "post_tar_stream",
+                        lambda *a, **k: iter(lines))
+    out = list(SELFUPDATE._stream_build("local:t", "/tmp/does-not-matter.tar"))
+    assert any("[Step 1/3]" in m for m in out), out
+
+    def boom(*a, **k):
+        yield b'{"errorDetail":{"message":"COPY failed: no such file"},"error":"COPY failed"}'
+    monkeypatch.setattr(DOCKER_API, "post_tar_stream", boom)
+    with pytest.raises(SELFUPDATE.SelfUpdateError) as excinfo:
+        list(SELFUPDATE._stream_build("local:t", "/tmp/x.tar"))
+    assert "COPY failed" in str(excinfo.value)
+
+
+def test_cleanup_previous_prunes_stale_sdupdate_images(monkeypatch):
+    calls = []
+
+    def fake_request(method, path, **kw):
+        calls.append((method, path))
+        if path == "/containers/json?all=true":
+            return []
+        if path == "/images/json":
+            return [
+                {"Id": "sha256:old", "RepoTags": ["sdcodex-selfupdate:sdupdate-111"]},
+                {"Id": "sha256:keep", "RepoTags": ["nakedzombie/sdcodex:latest"]},
+            ]
+        return None
+
+    monkeypatch.setattr(DOCKER_API, "request", fake_request)
+    SELFUPDATE.cleanup_previous()
+    deletes = [p for m, p in calls if m == "DELETE"]
+    assert any("sha256:old" in p for p in deletes), deletes
+    assert not any("sha256:keep" in p for p in deletes), deletes
