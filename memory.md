@@ -227,14 +227,14 @@ The **development** git checkouts live under
 `/home/naked/workspace/deeplabs/<repo>`. The **running** app container
 (`sdcodex`, image `nakedzombie/sdcodex:latest`) bind-mounts its code from a
 **separate** checkout:
-`/home/naked/ai/SDCodex` (its `plugins:/app/plugins`, `app:/app/app`,
+`/home/naked/games/SDCodex` (its `plugins:/app/plugins`, `app:/app/app`,
 `run.py`, etc.). So after committing/pushing from develab, deploying to the
 running instance is:
 
-1. `git -C /home/naked/ai/SDCodex pull origin main`  (core code + manifests)
+1. `git -C /home/naked/games/SDCodex pull origin main`  (core code + manifests)
 2. For **plugin code** (installed copies live under `plugins/<id>/`, which are
    *not* git-tracked): copy the updated plugin source from the develab
-   `SDCodex-<Plugin>` repo into `/home/naked/ai/SDCodex/plugins/<id>/`
+   `SDCodex-<Plugin>` repo into `/home/naked/games/SDCodex/plugins/<id>/`
    (mirrors the plugin manager's install-copy behavior)
 3. Reload gunicorn so plugins are re-registered:
    `pkill -HUP -f "gunicorn --bind 0.0.0.0:5001"` (master reloads the worker,
@@ -300,9 +300,9 @@ comfy-caption `2.1.2`):
 
 ### Deployment (from memory#deployment): after editing develab repos, sync plugin
 source into BOTH `/home/naked/workspace/deeplabs/SDCodex/plugins/<id>/` and
-`/home/naked/ai/SDCodex/plugins/<id>/`, clear plugin `__pycache__`,
+`/home/naked/games/SDCodex/plugins/<id>/`, clear plugin `__pycache__`,
 `git checkout -- app/static/css/style.css` (if pull aborts on local changes)
-before pulling core into `ai/SDCodex`, then HUP the current gunicorn master
+before pulling core into `games/SDCodex`, then HUP the current gunicorn master
 (resolve PID via `ps` — it churns on every HUP).
 
 ---
@@ -312,7 +312,7 @@ before pulling core into `ai/SDCodex`, then HUP the current gunicorn master
 ### Repo map (all public, under `https://github.com/DeeplabSystems`)
 | Repo | Local home (inside core clone's `plugins/`) |
 |---|---|
-| **SDCodex** (core) | authoring `/home/naked/workspace/deeplabs/SDCodex`; deploy/live `/home/naked/ai/SDCodex` — origin both `git@github.com:DeeplabSystems/SDCodex.git` |
+| **SDCodex** (core) | authoring `/home/naked/workspace/deeplabs/SDCodex`; deploy/live `/home/naked/games/SDCodex` — origin both `git@github.com:DeeplabSystems/SDCodex.git` |
 | **SDCodex-Gallery** | `plugins/gallery` → `https://github.com/DeeplabSystems/SDCodex-Gallery` |
 | **SDCodex-GalleryDL** | `plugins/gallery-dl` → `https://github.com/DeeplabSystems/SDCodex-GalleryDL` |
 | **SDCodex-ComfyCaption** | `plugins/comfy-caption` → `https://github.com/DeeplabSystems/SDCodex-ComfyCaption` |

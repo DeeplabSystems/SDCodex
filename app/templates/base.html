@@ -320,36 +320,99 @@
             });
         });
 
-        // Header user radial menu (Daily UI #006): toggle pill button fans the
-        // menu options out along a downward arc. Vanilla JS, no dependencies.
+        // Header user radial menu (Daily UI #006): the profile pic is the
+        // fan center; clicking it (or the pill toggle) fans the menu
+        // options out along a downward arc. Vanilla JS, no dependencies.
         (function () {
             const fan = document.getElementById('userfan');
             if (!fan) return;
             const btn = fan.querySelector('.userfan-btn');
+            const photo = fan.querySelector('.userfan-photo');
             const box = fan.querySelector('.userfan-box');
             if (!btn || !box) return;
             const items = Array.prototype.slice.call(box.querySelectorAll('.userfan-item'));
-            // Spread items along a downward arc (35deg..145deg in screen coords).
+            // Spread items along a downward arc, reversed so the first DOM
+            // item (Profile) lands left (145deg) and the last one
+            // (Sign in/out) lands right (35deg).
             const n = items.length;
             items.forEach(function (el, i) {
-                const angle = n <= 1 ? 90 : 35 + (110 * i) / (n - 1);
+                const angle = n <= 1 ? 90 : 145 - (110 * i) / (n - 1);
                 el.style.setProperty('--fan-angle', angle.toFixed(2) + 'deg');
             });
             function setOpen(open) {
                 btn.classList.toggle('active', open);
                 box.classList.toggle('open', open);
+                fan.classList.toggle('open', open);
                 btn.setAttribute('aria-expanded', open ? 'true' : 'false');
             }
             btn.addEventListener('click', function (e) {
                 e.stopPropagation();
                 setOpen(!box.classList.contains('open'));
             });
+            if (photo) {
+                photo.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    setOpen(!box.classList.contains('open'));
+                });
+            }
             document.addEventListener('click', function (e) {
                 if (!fan.contains(e.target)) setOpen(false);
             });
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') setOpen(false);
             });
+        })();
+    </script>
+    <script>
+        // Elastic pill tabs (vanilla JS port of the elastic-tabs starter):
+        // slides a grey pill behind the active .nav-link in every .nav-tabs
+        // list (settings tabs, search tabs, ...). Visual only — Bootstrap's
+        // own tab switching is untouched.
+        (function () {
+            function moveSelector(tablist) {
+                var selector = tablist.querySelector(':scope > .elastic-selector');
+                if (!selector) return;
+                var active = tablist.querySelector('.nav-link.active');
+                if (!active) {
+                    selector.style.opacity = '0';
+                    return;
+                }
+                selector.style.opacity = '1';
+                selector.style.left = active.offsetLeft + 'px';
+                selector.style.top = active.offsetTop + 'px';
+                selector.style.width = active.offsetWidth + 'px';
+                selector.style.height = active.offsetHeight + 'px';
+            }
+            function initTabs() {
+                document.querySelectorAll('.nav-tabs').forEach(function (tablist) {
+                    if (!tablist.querySelector(':scope > .elastic-selector')) {
+                        var selector = document.createElement('span');
+                        selector.className = 'elastic-selector';
+                        selector.setAttribute('aria-hidden', 'true');
+                        tablist.prepend(selector);
+                    }
+                    moveSelector(tablist);
+                    if (!tablist.dataset.elasticBound) {
+                        tablist.dataset.elasticBound = '1';
+                        tablist.addEventListener('click', function (e) {
+                            if (!e.target.closest('.nav-link')) return;
+                            requestAnimationFrame(function () { moveSelector(tablist); });
+                            setTimeout(function () { moveSelector(tablist); }, 60);
+                        });
+                        tablist.addEventListener('shown.bs.tab', function () { moveSelector(tablist); });
+                    }
+                });
+            }
+            document.addEventListener('DOMContentLoaded', initTabs);
+            window.addEventListener('load', initTabs);
+            window.addEventListener('resize', function () {
+                document.querySelectorAll('.nav-tabs').forEach(moveSelector);
+            });
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(function () {
+                    document.querySelectorAll('.nav-tabs').forEach(moveSelector);
+                });
+            }
         })();
     </script>
     <script>
