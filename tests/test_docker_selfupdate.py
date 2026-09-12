@@ -93,10 +93,9 @@ def test_build_create_config():
 
 
 def test_rebuild_binds_same_src_two_dests_no_duplicate_mount():
-    # Regression: CAPTION_MODELS + LMSTUDIO_MODELS both point at
-    # ~/ai/LLModels. Correct src:dest order keeps distinct container
-    # dests; the old reversed dest:src order produced two binds to the
-    # same container path -> Docker 400 "Duplicate mount point".
+    # Regression: two binds sharing one host src must keep distinct container
+    # dests. The old reversed dest:src order collapsed both onto the same
+    # container path -> Docker 400 "Duplicate mount point".
     mounts = [
         {"Type": "bind", "Source": "/home/naked/ai/LLModels",
          "Destination": "/data/caption_models", "RW": True},

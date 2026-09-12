@@ -496,8 +496,7 @@ def _rebuild_binds(mounts):
     """Convert inspect ``Mounts`` into HostConfig.Binds 'src:dest:mode' strings.
 
     Docker Binds format is ``host_src:container_dest[:mode]``. The same host
-    dir may legally back two container paths (e.g. CAPTION_MODELS and
-    LMSTUDIO_MODELS both pointing at ~/ai/LLModels), so dedup is by the full
+    dir may legally back two container paths, so dedup is by the full
     string — never by src or dest alone.
     """
     binds = []

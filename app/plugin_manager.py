@@ -36,7 +36,7 @@ DEFAULT_PLUGIN_REPOSITORIES = [
     },
     {
         "url": "https://github.com/DeeplabSystems/SDCodex-GalleryDL",
-        "name": "GalleryDL & Tasks",
+        "name": "GalleryDL & Tools",
         "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth, and a persistent activity log."
     },
     {
@@ -52,11 +52,18 @@ DEFAULT_PLUGIN_REPOSITORIES = [
 DEFAULT_PLUGIN_STORE_URL = "https://github.com/DeeplabSystems/SDCodex-Plugin-Store"
 PLUGIN_STORE_MANIFEST_FILE = "plugins.json"
 
+# Env vars retired from plugin manifests but possibly lingering in users'
+# .env files from older installs. Dropped from .env whenever volume config
+# is applied (compose blocks are rewritten from the current manifest anyway).
+# - LMSTUDIO_MODELS: comfy-caption v2.4.0 merged the separate LM Studio mount
+#   (/data/lmstudio_models) into CAPTION_MODELS — one host dir, one mount.
+RETIRED_ENV_VARS = frozenset({"LMSTUDIO_MODELS"})
+
 DEFAULT_PLUGIN_MANIFESTS = {
     "comfy-caption": {
         "id": "comfy-caption",
         "name": "ComfyUI Captioning",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "description": "Auto-captioning with LLMs/JoyCaption and ComfyUI custom workflow nodes. Captioning GGUF models can be downloaded from HuggingFace via the Caption Models settings page.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-ComfyCaption",
@@ -78,13 +85,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
                 "env_var": "CAPTION_MODELS",
                 "host_path": "./caption_models",
                 "container_path": "/data/caption_models",
-                "description": "Directory where captioning models (GGUF + mmproj) downloaded from the Caption Models page are stored"
-            },
-            {
-                "env_var": "LMSTUDIO_MODELS",
-                "host_path": "",
-                "container_path": "/data/lmstudio_models",
-                "description": "Read-only mount of your LM Studio models directory (point host_path at your LM Studio models folder) so the app can read those GGUF models"
+                "description": "Directory for captioning models (GGUF + mmproj). Point this at your LM Studio models folder to reuse existing GGUFs — files downloaded from the Caption Models page land here too"
             }
         ]
     },
@@ -92,7 +93,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
         "id": "gallery",
         "name": "SDCodex Gallery",
         "version": "2.5.9",
-        "description": "Disk-backed media gallery built into the SD Codex header. Scans folders directly, reads captions/.txt sidecars, SD prompts and ComfyUI workflows from image metadata, and downloads workflows as JSON. No database required.",
+        "description": "Disk-backed media gallery built into the SD Codex header. Scans folders directly, reads captions/.txt sidecars, SD prompts and ComfyUI workflows from image metadata, and downloads workflows as JSON.",
         "author": "DeeplabSystems",
         "repository": "https://github.com/DeeplabSystems/SDCodex-Gallery",
         "entrypoint": "plugin:init_plugin",
@@ -110,7 +111,7 @@ DEFAULT_PLUGIN_MANIFESTS = {
     },
     "gallery-dl": {
         "id": "gallery-dl",
-        "name": "GalleryDL & Tasks",
+        "name": "GalleryDL & Tools",
         "version": "1.4.1",
         "description": "Background gallery-dl and yt-dlp task management, quick downloads, kiosks, OAuth configuration, and a persistent activity log.",
         "author": "DeeplabSystems",
@@ -1298,6 +1299,24 @@ class PluginManager:
             f.write(new_core)
         logger.info(f"Migrated {len(added)} plugin requirement block(s) from requirements.txt to plugin-requirements.txt")
 
+    def _remove_env_keys(self, env_file, keys):
+        """Removes exact .env keys (ignores comments/blank lines). Returns True if changed."""
+        if not keys or not os.path.exists(env_file) or os.path.isdir(env_file):
+            return False
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            kept = [ln for ln in lines if not (ln.strip() and not ln.startswith("#") and "=" in ln and ln.split("=", 1)[0].strip() in keys)]
+            if len(kept) != len(lines):
+                with open(env_file, "w", encoding="utf-8") as f:
+                    f.writelines(kept)
+                logger.info(f"Removed retired env vars {sorted(keys)} from .env")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing env vars {sorted(keys)}: {e}")
+            return False
+
     def _remove_env_keys_for_plugin(self, plugin_id):
         """Removes the .env keys that this plugin introduced (from its manifest volumes)."""
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1352,6 +1371,10 @@ class PluginManager:
                 env_updates[env_var] = val
 
         self._update_env_file(env_file, env_updates)
+
+        # 1b. Drop retired env vars lingering from older installs.
+        if RETIRED_ENV_VARS:
+            self._remove_env_keys(env_file, RETIRED_ENV_VARS)
 
         # 2. Update docker-compose.override.yml (volume mounts and environment block)
         plugin_id = manifest.get("id")
