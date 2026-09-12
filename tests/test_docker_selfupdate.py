@@ -466,3 +466,22 @@ def test_cleanup_previous_keeps_freshly_built_image(monkeypatch):
     deletes = [p for m, p in calls if m == "DELETE"]
     assert not any("sha256:new" in p for p in deletes), deletes
     assert any("sha256:old" in p for p in deletes), deletes
+
+def test_blocking_with_heartbeats_returns_result():
+    import time as _time
+
+    def slow():
+        _time.sleep(0.25)
+        return ("pulled", "ok")
+
+    out = list(SELFUPDATE._blocking_with_heartbeats(slow, interval=0.05))
+    assert any(o is SELFUPDATE._HEARTBEAT for o in out), out
+    assert out[-1] == ("pulled", "ok")
+
+
+def test_blocking_with_heartbeats_reraises_errors():
+    def boom():
+        raise SELFUPDATE.SelfUpdateError("git fetch failed")
+
+    with pytest.raises(SELFUPDATE.SelfUpdateError):
+        list(SELFUPDATE._blocking_with_heartbeats(boom, interval=0.01))

@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import tarfile
+import threading
 import time
 from urllib.parse import quote
 
@@ -44,6 +45,35 @@ CREATE_LABEL = "sdcodex.selfupdate"
 # into a lightweight "ping" event the frontend ignores (but which keeps the
 # HTTP stream alive through long silent build stretches).
 _HEARTBEAT = object()
+
+
+def _blocking_with_heartbeats(fn, interval=15):
+    """Yield ``_HEARTBEAT`` while blocking ``fn()`` runs, then yield its return.
+
+    Prep phases (``git pull``, build-context assembly) are synchronous and
+    emit no daemon output, so without this the SSE stream goes silent and a
+    reverse proxy with an idle timeout severs the UI connection mid-update
+    (surfacing as ``Connection lost`` even though the work continues fine).
+    Errors from ``fn`` are re-raised to the caller after the wait.
+    """
+    box = {}
+
+    def _target():
+        try:
+            box["result"] = fn()
+        except Exception as exc:  # noqa: BLE001 - re-raised below
+            box["error"] = exc
+
+    worker = threading.Thread(target=_target, daemon=True,
+                              name="sdcodex-selfupdate-blocking")
+    worker.start()
+    while worker.is_alive():
+        worker.join(interval)
+        if worker.is_alive():
+            yield _HEARTBEAT
+    if "error" in box:
+        raise box["error"]
+    yield box.get("result")
 
 
 def _default_image():
@@ -648,7 +678,12 @@ def self_update_generator(new_image):
             try:
                 yield step("pulling_image", "active", "Updating source via git pull...")
                 yield log("Marking plugin-managed files (override/env/requirements) as frozen → git pull...")
-                pulled = _git_pull_app()
+                pulled = None
+                for item in _blocking_with_heartbeats(lambda: _git_pull_app()):
+                    if item is _HEARTBEAT:
+                        yield {"event": "ping", "data": {}}
+                    else:
+                        pulled = item
                 yield log(pulled)
                 logger.info("Self-update: %s", pulled)
             except SelfUpdateError as exc:
@@ -664,7 +699,13 @@ def self_update_generator(new_image):
             # blocking POST, so the UI shows progress instead of sitting on
             # "Preparing..." while Docker builds (which takes minutes).
             try:
-                tar_path, stats = _tar_app_context()
+                assembled = None
+                for item in _blocking_with_heartbeats(lambda: _tar_app_context()):
+                    if item is _HEARTBEAT:
+                        yield {"event": "ping", "data": {}}
+                    else:
+                        assembled = item
+                tar_path, stats = assembled
             except SelfUpdateError as exc:
                 raise exc
             except Exception as exc:  # noqa: BLE001

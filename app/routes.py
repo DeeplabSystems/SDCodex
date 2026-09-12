@@ -555,7 +555,19 @@ def settings():
             store_meta = result.get("store", {})
             has_updates = any(v.get("has_update") for v in updates.values())
 
+            # Same button also refreshes the core app check so the header
+            # badge updates immediately instead of waiting for the monitor.
+            core = plugin_manager.check_core_update()
+            plugin_manager.core_update_cache = core
+            core_update = bool(core.get("has_update"))
+
             bits = []
+            if core_update:
+                bits.append(f"Core app update available ({(core.get('remote_sha') or '')[:7]})")
+            elif not core.get("ok"):
+                bits.append("Core check failed (see logs)")
+            else:
+                bits.append("Core app is up to date")
             if has_updates:
                 bits.append(f"{sum(1 for v in updates.values() if v.get('has_update'))} plugin update(s) available")
             elif store_meta.get("reachable"):
@@ -564,7 +576,7 @@ def settings():
                 bits.append("Store could not be reached")
             if new_plugins:
                 bits.append(f"{len(new_plugins)} new plugin(s) available in the store")
-            flash("Plugin update check complete: " + "; ".join(bits) + ".", "info" if (has_updates or new_plugins) else "success")
+            flash("Update check complete: " + "; ".join(bits) + ".", "info" if (has_updates or new_plugins or core_update) else "success")
             active_tab = "plugins"
 
         elif action == "install_plugin":

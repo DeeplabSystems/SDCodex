@@ -194,8 +194,9 @@ DEFAULT_PLUGIN_MANIFESTS = {
 
 class PluginManager:
     CORE_REPO = "DeeplabSystems/SDCodex"
-    # Header auto-refresh interval for update checks.
-    MONITOR_INTERVAL = int(os.environ.get("UPDATE_MONITOR_INTERVAL", "300"))  # seconds
+    # Header auto-refresh interval for update checks. Once a day by default;
+    # the Check for Updates button refreshes on demand in between.
+    MONITOR_INTERVAL = int(os.environ.get("UPDATE_MONITOR_INTERVAL", "86400"))  # seconds
 
     def __init__(self):
         self.app = None
