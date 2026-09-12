@@ -928,7 +928,7 @@
                         runBtn.disabled = false;
                     }
                 } catch (e) {
-                    setStatus('Connection lost: ' + e);
+                    setStatus('Connection lost: ' + e + ' — the daemon-side build may still be running; it is safe to retry (a retry just rebuilds, stale images are pruned automatically).');
                     runBtn.disabled = false;
                 }
             }

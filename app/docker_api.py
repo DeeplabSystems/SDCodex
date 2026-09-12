@@ -151,7 +151,7 @@ def request_raw(method, path, body=None, headers=None, timeout=60):
     raise DockerApiError(f"Docker API {status} on {method} {path}: {raw[:300]}")
 
 
-def post_tar_stream(path, tar_path, headers=None, timeout=1200):
+def post_tar_stream(path, tar_path, headers=None, timeout=1200, heartbeat=20):
     """POST a tar file to the daemon and yield raw response lines (bytes).
 
     Streams the upload with ``Content-Length`` (constant memory — the file is
@@ -159,6 +159,15 @@ def post_tar_stream(path, tar_path, headers=None, timeout=1200):
     operations like ``/build`` (a 7 GB image takes 10+ minutes) produce output
     as they run instead of going silent until completion. Raises
     :class:`DockerApiError` on non-2xx responses.
+
+    Long silent stretches (no daemon output for a while) would otherwise leave
+    the HTTP stream idle for minutes, and idle streams get severed mid-build
+    (NAT/proxy timeouts) surfacing as ``Connection lost`` in the UI. To keep
+    the stream alive, the read phase uses a short socket timeout and yields a
+    ``b": ping"`` heartbeat line whenever ``heartbeat`` seconds pass without
+    daemon output. A timeout only ever discards part of one progress line at
+    worst (chunk framing is re-synced by http.client); callers must pass
+    ``:``-prefixed lines through as keepalives, never as data.
     """
     import os as _os
 
@@ -193,9 +202,20 @@ def post_tar_stream(path, tar_path, headers=None, timeout=1200):
             if resp.status == 404:
                 raise DockerApiError(f"not found (POST {path}) {raw[:200]}")
             raise DockerApiError(f"Docker API {resp.status} on POST {path}: {raw[:300]}")
+        # Short read timeout from here on: only the (already uploaded) response
+        # stream is affected; a timeout just means "no daemon output yet".
+        if heartbeat and heartbeat > 0:
+            try:
+                conn.sock.settimeout(heartbeat)
+            except Exception:
+                pass
         buf = b""
         while True:
-            chunk = resp.read(65536)
+            try:
+                chunk = resp.read(65536)
+            except socket.timeout:
+                yield b": ping"
+                continue
             if not chunk:
                 break
             buf += chunk

@@ -39,6 +39,11 @@ UPDATER_IMAGE = os.environ.get("SDCODEX_UPDATER_IMAGE", "sdcodex-updater:latest"
 UPDATER_LABEL = "sdcodex.updater"
 # Label marking the temporary replacement container.
 CREATE_LABEL = "sdcodex.selfupdate"
+# Sentinel yielded by _stream_build for stream keepalives (daemon quiet).
+# Identity-compared; never rendered as a log line — the SSE layer turns it
+# into a lightweight "ping" event the frontend ignores (but which keeps the
+# HTTP stream alive through long silent build stretches).
+_HEARTBEAT = object()
 
 
 def _default_image():
@@ -137,6 +142,10 @@ def _stream_build(repo_tag, tar_path):
         headers={"Content-Type": "application/x-tar"},
         timeout=3600,
     ):
+        if raw.strip().startswith(b":"):
+            # Stream keepalive (SSE comment) — forward as a ping, not a log.
+            yield _HEARTBEAT
+            continue
         try:
             obj = json.loads(raw.decode("utf-8", "replace"))
         except ValueError:
@@ -681,7 +690,10 @@ def self_update_generator(new_image):
             yield log("Sending build context to Docker (a full image build takes several minutes)...")
             try:
                 for prog in _stream_build(local_tag, tar_path):
-                    yield log(prog)
+                    if prog is _HEARTBEAT:
+                        yield {"event": "ping", "data": {}}
+                    else:
+                        yield log(prog)
             except SelfUpdateError as exc:
                 raise exc
             except docker_api.DockerApiError as exc:

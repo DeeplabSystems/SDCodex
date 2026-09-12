@@ -392,6 +392,20 @@ def test_build_sdcodex_image_posts_context_and_cleans_up(tmp_path, monkeypatch):
     assert after <= before  # temp tar unlinked
 
 
+def test_stream_build_forwards_heartbeats_as_sentinel(monkeypatch):
+    lines = [
+        b': ping',
+        b'{"stream":"Step 1/2 : FROM python:3.11-slim"}',
+        b': ping',
+    ]
+    monkeypatch.setattr(DOCKER_API, "post_tar_stream",
+                        lambda *a, **k: iter(lines))
+    out = list(SELFUPDATE._stream_build("local:t", "/tmp/x.tar"))
+    assert out[0] is SELFUPDATE._HEARTBEAT
+    assert out[2] is SELFUPDATE._HEARTBEAT
+    assert any("[Step 1/2]" in m for m in out if isinstance(m, str)), out
+
+
 def test_stream_build_parses_steps_and_surfaces_errors(monkeypatch):
     lines = [
         b'{"stream":"Step 1/3 : FROM python:3.11-slim"}',

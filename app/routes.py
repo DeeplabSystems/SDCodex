@@ -813,7 +813,11 @@ def self_update():
             payload = json.dumps(ev.get("data") or {})
             yield f"event: {event}\ndata: {payload}\n\n"
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+    resp = Response(stream_with_context(generate()), mimetype="text/event-stream")
+    # Never buffer/proxy-cache a 10+ minute build stream.
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 @main.route("/settings/self_update/progress", methods=["GET"])
 def self_update_progress():
