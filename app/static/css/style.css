@@ -232,15 +232,63 @@
   border-radius: 12px;
 }
 
-/* Bright grey hover for dropdown (rembg / GalleryDL) submenu items. */
+/* Header dropdowns: temp `div.select` default style, remapped to site vars
+   (card-bg / bg / text-secondary / primary). Radial menu (.userfan) untouched. */
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle {
+  background-color: var(--bg);
+  border-radius: 10px;
+  box-shadow: inset 0 2px 1px -1px rgb(255 255 255 / 10%);
+  color: var(--text-secondary);
+  padding-right: 2rem;
+}
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle:hover,
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle:focus-visible {
+  color: var(--text);
+  background-color: var(--bg);
+}
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: 0;
+  height: 100%;
+  width: 1em;
+  margin: 0;
+  border: 0;
+  vertical-align: baseline;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='58' height='98' fill='none'%3E%3Cpath fill='currentColor' d='M25.536 6c1.54-2.667 5.388-2.667 6.928 0l18.187 31.5c1.54 2.667-.385 6-3.465 6H10.814c-3.079 0-5.003-3.333-3.464-6L25.536 6ZM25.536 92c1.54 2.667 5.388 2.667 6.928 0l18.187-31.5c1.54-2.667-.385-6-3.465-6H10.814c-3.079 0-5.003 3.333-3.464 6L25.536 92Z'/%3E%3C/svg%3E") no-repeat center center / 0.6em;
+}
+.navbar .nav-item.dropdown > .nav-link.dropdown-toggle:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+.navbar .dropdown-menu {
+  padding: 6px;
+  border-radius: 16px;
+}
+.navbar .dropdown-menu.show {
+  box-shadow: var(--glow), var(--card-shadow);
+}
 .navbar .dropdown-menu .dropdown-item {
-  border-radius: 12px;
+  border-radius: 10px;
+  padding: 9.6px 7.2px;
+  margin-top: 8px;
   color: var(--text-secondary);
 }
 .navbar .dropdown-menu .dropdown-item:hover,
 .navbar .dropdown-menu .dropdown-item:focus {
   background-color: var(--nav-hover);
-  color: var(--text);
+  color: var(--primary);
+}
+.navbar .dropdown-menu .dropdown-item:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .navbar .nav-item.dropdown > .nav-link.dropdown-toggle,
+  .navbar .dropdown-menu .dropdown-item {
+    transition: none !important;
+  }
 }
 
 [data-theme='dark'] .nav-tabs {
