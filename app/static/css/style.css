@@ -238,20 +238,20 @@
    Radial menu (.userfan) untouched. */
 @property --sd-x { syntax: '<number>'; inherits: true; initial-value: 50; }
 @property --sd-y { syntax: '<number>'; inherits: true; initial-value: -50; }
-@property --sd-c { syntax: '<color>'; inherits: true; initial-value: #6c757d; }
-[data-theme='dark'] .navbar, [data-theme='dark'] .nav-tabs { --sd-c: #9a9aa0; }
+@property --sd-c { syntax: '<color>'; inherits: true; initial-value: transparent; }
+[data-theme='dark'] .navbar, [data-theme='dark'] .nav-tabs { --sd-c: transparent; }
 .navbar .nav-item.dropdown {
   position: relative;
   padding: 6px;
   border-radius: 16px;
   background: var(--bg) radial-gradient(ellipse 70% 70% at calc(var(--sd-x)*1%) calc(var(--sd-y)*1%), var(--sd-c) 0%, transparent 70%);
-  transition: --sd-x .4s ease, --sd-y .4s ease;
+  transition: --sd-x .4s ease, --sd-y .4s ease, --sd-c .4s ease;
 }
 .navbar .nav-item.dropdown:hover { animation: sd-sweep 1.2s ease-in-out; }
 @keyframes sd-sweep {
   from { --sd-c: var(--primary); --sd-x: 100; --sd-y: 0; }
-  50% { --sd-x: 60; --sd-y: 120; }
-  to { --sd-x: 60; --sd-y: 120; }
+  50% { --sd-c: hsl(290deg 100% 58%); --sd-x: 60; --sd-y: 120; }
+  to { --sd-c: transparent; --sd-x: 60; --sd-y: 120; }
 }
 .navbar .nav-item.dropdown > .nav-link.dropdown-toggle {
   background: var(--card-bg);
@@ -292,7 +292,7 @@
 .navbar .dropdown-menu {
   padding: 6px;
   border-radius: 16px;
-  background-color: var(--bg);
+  background: var(--bg) radial-gradient(ellipse 70% 70% at calc(var(--sd-x)*1%) calc(var(--sd-y)*1%), var(--sd-c) 0%, transparent 70%);
   border: 1px solid var(--border);
   min-width: 200px;
 }
@@ -1945,6 +1945,12 @@ body {
   max-width: 230px;
   position: relative;
   z-index: 1202;
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.userfan.open .userfan-pill {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), 0 0 16px color-mix(in srgb, var(--primary) 50%, transparent), var(--card-shadow);
 }
 
 .userfan-photo {
@@ -1962,11 +1968,14 @@ body {
   cursor: pointer;
   position: relative;
   z-index: 2;
+  transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.35s ease;
 }
 
-/* Ring the avatar while its radial menu is open (fan center). */
+/* Ring + grow the avatar while its radial menu is open (fan center). */
 .userfan.open .userfan-photo {
-  box-shadow: 0 0 0 3px var(--primary);
+  box-shadow: 0 0 0 3px var(--primary), 0 0 14px var(--primary);
+  transform: scale(1.22);
+  transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.35s ease;
 }
 
 .userfan-photo img {
@@ -2206,7 +2215,9 @@ body {
   .userfan-btn span::after,
   .userfan-item,
   .userfan-halo,
-  .userfan-node {
+  .userfan-node,
+  .userfan-photo,
+  .userfan-pill {
     transition: none;
     animation: none;
   }
